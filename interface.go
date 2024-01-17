@@ -3,18 +3,18 @@ package conecta
 // 回调接口
 // Callback is the interface that receives callbacks from the queue.
 type Callback interface {
-	OnPingSuccess(any)  // 在 ping 成功时调用 (called when a ping is successful)
-	OnPingFailure(any)  // 在 ping 失败时调用 (called when a ping fails)
-	OnClose(any, error) // 在销毁对象时调用 (called when an object is destroyed)
+	OnValidateSuccess(any) // 在 Validate 成功时调用 (called when a validate is successful)
+	OnValidateFailure(any) // 在 Validate 失败时调用 (called when a validate fails)
+	OnClose(any, error)    // 在销毁对象时调用 (called when an object is destroyed)
 }
 
 // 空回调实现
 // emptyCallback is a no-op implementation of Callback.
 type emptyCallback struct{}
 
-func (c *emptyCallback) OnPingSuccess(any)  {} // 空实现
-func (c *emptyCallback) OnPingFailure(any)  {} // 空实现
-func (c *emptyCallback) OnClose(any, error) {} // 空实现
+func (c *emptyCallback) OnValidateSuccess(any) {} // 空实现
+func (c *emptyCallback) OnValidateFailure(any) {} // 空实现
+func (c *emptyCallback) OnClose(any, error)    {} // 空实现
 
 // 队列方法接口
 // Queue interface

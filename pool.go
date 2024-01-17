@@ -24,9 +24,9 @@ type Pool struct {
 	cancel context.CancelFunc
 }
 
-// NewPool 创建一个新的连接池
-// NewPool creates a new connection pool.
-func NewPool(queue QInterface, conf *Config) *Pool {
+// New 创建一个新的连接池
+// New creates a new connection pool.
+func New(queue QInterface, conf *Config) *Pool {
 	// 如果队列为空，则返回 nil
 	// If the queue is empty, return nil.
 	if queue == nil {
@@ -108,16 +108,16 @@ func (p *Pool) executor() {
 				} else {
 					// 执行 Ping 检测
 					// Perform Ping checks.
-					if ok := p.config.pingFunc(value, retryCount); ok {
+					if ok := p.config.validateFunc(value, retryCount); ok {
 						// 重置 Ping 次数
 						// Reset the number of Ping times.
 						item.SetValue(0)
-						p.config.callback.OnPingSuccess(value)
+						p.config.callback.OnValidateSuccess(value)
 					} else {
 						// Ping 次数加 1
 						// The number of Ping times plus 1.
 						item.SetValue(int64(retryCount) + 1)
-						p.config.callback.OnPingFailure(value)
+						p.config.callback.OnValidateFailure(value)
 					}
 				}
 				// 一定要返回 true，否则会导致 Range 函数提前退出
@@ -195,6 +195,9 @@ func (p *Pool) GetOrCreate() (any, error) {
 	// 获取一个元素，如果没有错误，则返回元素的值
 	// Get an element, if there is no error, return the value of the element.
 	value, err := p.Get()
+
+	// 如果有错误，且 ErrorQueueClosed，则直接返回错误，否则创建新的数据
+	// If there is an error and ErrorQueueClosed, return the error directly, otherwise create new data.
 	if err != nil {
 		// 如果错误是 ErrorQueueClosed，则直接返回错误
 		// If the error is ErrorQueueClosed, return the error directly.
