@@ -12,9 +12,9 @@ type Callback interface {
 // emptyCallback is a no-op implementation of Callback.
 type emptyCallback struct{}
 
-func (c *emptyCallback) OnValidateSuccess(any) {} // 空实现
-func (c *emptyCallback) OnValidateFailure(any) {} // 空实现
-func (c *emptyCallback) OnClose(any, error)    {} // 空实现
+func (c *emptyCallback) OnValidateSuccess(any) {} // 空实现 (no-op)
+func (c *emptyCallback) OnValidateFailure(any) {} // 空实现 (no-op)
+func (c *emptyCallback) OnClose(any, error)    {} // 空实现 (no-op)
 
 // 队列方法接口
 // Queue interface

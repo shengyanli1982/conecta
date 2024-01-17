@@ -9,6 +9,8 @@ import (
 	itl "github.com/shengyanli1982/conecta/internal"
 )
 
+// 队列已经关闭
+// ErrorQueueClosed indicates that the queue has been closed.
 var ErrorQueueClosed = errors.New("queue is closed")
 
 // 元素内存池

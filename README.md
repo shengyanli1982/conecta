@@ -98,6 +98,14 @@ type QInterface interface {
 }
 ```
 
+## Callback
+
+`Callback` interface is used to define the callback functions. The `Callback` interface has three methods, `OnValidateSuccess`, `OnValidateFailure` and `OnClose`.
+
+-   `OnValidateSuccess` is called when the object validation is successful.
+-   `OnValidateFailure` is called when the object validation fails.
+-   `OnClose` is called when the object is destroyed.
+
 ## Example
 
 ```go
