@@ -1,5 +1,7 @@
 package conecta
 
+import "math"
+
 const (
 	DefaultInitialize   = 1
 	DefaultMaxPingRetry = 3
@@ -7,7 +9,7 @@ const (
 
 var (
 	DefaultNewFunc   = func() (any, error) { return nil, nil }
-	DefaultPingFunc  = func(any) bool { return true }
+	DefaultPingFunc  = func(any, int) bool { return true }
 	DefaultCloseFunc = func(any) error { return nil }
 )
 
@@ -15,7 +17,7 @@ type Config struct {
 	maxRetries int
 	initialize int
 	newFunc    func() (any, error)
-	pingFunc   func(any) bool
+	pingFunc   func(any, int) bool
 	closeFunc  func(any) error
 	callback   Callback
 }
@@ -23,6 +25,7 @@ type Config struct {
 func NewConfig() *Config {
 	conf := Config{
 		initialize: DefaultInitialize,
+		maxRetries: DefaultMaxPingRetry,
 		newFunc:    DefaultNewFunc,
 		pingFunc:   DefaultPingFunc,
 		closeFunc:  DefaultCloseFunc,
@@ -56,7 +59,7 @@ func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
 	return c
 }
 
-func (c *Config) WithPingFunc(pingFunc func(any) bool) *Config {
+func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
 	c.pingFunc = pingFunc
 	return c
 }
@@ -70,6 +73,9 @@ func isConfigValid(conf *Config) *Config {
 	if conf != nil {
 		if conf.initialize <= 0 {
 			conf.initialize = DefaultInitialize
+		}
+		if conf.maxRetries <= 0 || conf.maxRetries >= math.MaxUint16 {
+			conf.maxRetries = DefaultMaxPingRetry
 		}
 		if conf.newFunc == nil {
 			conf.newFunc = DefaultNewFunc

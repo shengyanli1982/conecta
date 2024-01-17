@@ -46,6 +46,8 @@ type ObjectPool struct {
 	pool *sync.Pool
 }
 
+// 新建对象池
+// new ObjectPool.
 func NewElementPool() *ObjectPool {
 	return &ObjectPool{
 		pool: &sync.Pool{
@@ -56,10 +58,14 @@ func NewElementPool() *ObjectPool {
 	}
 }
 
+// 从对象池中获取一个元素
+// Get an element from the object pool.
 func (p *ObjectPool) Get() *element {
 	return p.pool.Get().(*element)
 }
 
+// 将元素放入对象池
+// Put an element into the object pool.
 func (p *ObjectPool) Put(e *element) {
 	if e != nil {
 		e.Reset()

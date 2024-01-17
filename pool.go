@@ -25,10 +25,18 @@ type Pool struct {
 // NewPool 创建一个新的连接池
 // NewPool creates a new connection pool.
 func NewPool(queue QInterface, conf *Config) *Pool {
+	// 如果队列为空，则返回 nil
+	// If the queue is empty, return nil.
 	if queue == nil {
 		return nil
 	}
+
+	// 如果配置为空，则使用默认配置
+	// If the configuration is empty, use the default configuration.
 	conf = isConfigValid(conf)
+
+	// 创建连接池
+	// Create a connection pool.
 	pool := Pool{
 		queue:  queue,
 		config: conf,
@@ -42,6 +50,8 @@ func NewPool(queue QInterface, conf *Config) *Pool {
 	pool.wg.Add(1)
 	go pool.executor()
 
+	// 返回连接池
+	// Return the connection pool.
 	return &pool
 }
 
@@ -82,9 +92,10 @@ func (p *Pool) executor() {
 			p.queue.Range(func(data any) bool {
 				item := data.(*element)
 				value := item.GetData()
+				retryCount := int(item.GetValue())
 				// 如果元素的 Ping 次数超过最大重试次数，则关闭连接
 				// If the number of Ping times of the element exceeds the maximum number of retries, the connection is closed.
-				if item.GetValue() >= int64(p.config.maxRetries) {
+				if retryCount >= p.config.maxRetries {
 					// 关闭连接
 					// Close the connection.
 					err := p.config.closeFunc(value)
@@ -95,7 +106,7 @@ func (p *Pool) executor() {
 				} else {
 					// 执行 Ping 检测
 					// Perform Ping checks.
-					if ok := p.config.pingFunc(item); ok {
+					if ok := p.config.pingFunc(value, retryCount); ok {
 						// 重置 Ping 次数
 						// Reset the number of Ping times.
 						item.SetValue(0)
@@ -103,7 +114,7 @@ func (p *Pool) executor() {
 					} else {
 						// Ping 次数加 1
 						// The number of Ping times plus 1.
-						item.SetValue(item.GetValue() + 1)
+						item.SetValue(int64(retryCount) + 1)
 						p.config.callback.OnPingFailure(value)
 					}
 				}
