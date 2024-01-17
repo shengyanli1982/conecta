@@ -5,13 +5,15 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	itl "github.com/shengyanli1982/conecta/internal"
 )
 
 var ErrorQueueClosed = errors.New("queue is closed")
 
 // 元素内存池
 // Element memory pool.
-var elementPool = NewElementPool()
+var elementPool = itl.NewElementPool()
 
 type Pool struct {
 	queue  QInterface
@@ -90,7 +92,7 @@ func (p *Pool) executor() {
 			// 遍历 queue 中的元素，然后对元素做 Ping 的检测
 			// Traverse the elements in the queue and perform Ping checks on them.
 			p.queue.Range(func(data any) bool {
-				item := data.(*element)
+				item := data.(*itl.Element)
 				value := item.GetData()
 				retryCount := int(item.GetValue())
 				// 如果元素的 Ping 次数超过最大重试次数，则关闭连接
@@ -171,7 +173,7 @@ func (p *Pool) Get() (any, error) {
 
 		// 从元素中获取数据
 		// Get data from the element.
-		data := item.(*element)
+		data := item.(*itl.Element)
 		value := data.GetData()
 
 		// 如果元素的值不为 nil，则返回元素的值
