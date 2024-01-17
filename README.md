@@ -34,7 +34,7 @@ $ go get github.com/shengyanli1982/conecta
 
 # Quick Start
 
-`Conecta` is very simple to use. You only need to implement the `NewFunc`, `CloseFunc` and `ValidateFunc` functions, and then call the `New` function to create a `Conecta` object.
+`Conecta` is very simple to use. You only need to implement the `NewFunc`, `CloseFunc` and `PingFunc` functions, and then call the `New` function to create a `Conecta` object.
 
 ## Config
 
@@ -42,10 +42,16 @@ $ go get github.com/shengyanli1982/conecta
 
 -   `WithCallback` set the callback functions. The default is `&emptyCallback{}`.
 -   `WithInitialize` set the minimum number of objects when initializing the pool. The default is `1`.
--   `WithValidateMaxRetries` set the maximum number of object validation failures before destroying the object. The default is `3`.
+-   `WithPingMaxRetries` set the maximum number of object validation failures before destroying the object. The default is `3`.
 -   `WithNewFunc` set the object creation function. The default is `DefaultNewFunc`.
--   `WithValidateFunc` set the object validation function. The default is `DefaultValidateFunc`
+-   `WithPingFunc` set the object validation function. The default is `DefaultPingFunc`
 -   `WithCloseFunc` set the object destruction function. The default is `DefaultCloseFunc`.
+-   `WithScanInterval` set the interval between two scans. The default is `10000ms`.
+
+> [!NOTE]
+> The **Conecta** start a goroutine to scan the elements. The scan interval is set by `WithScanInterval`. The scan process will block the objects that have not been used for a long time, if so many objects in the pool.
+>
+> So if you want to use **Conecta** in a long-running program, you need to set the scan interval to a reasonable value. May be more than **10 seconds** is a good choice.
 
 ## Methods
 
@@ -100,10 +106,10 @@ type QInterface interface {
 
 ## Callback
 
-`Callback` interface is used to define the callback functions. The `Callback` interface has three methods, `OnValidateSuccess`, `OnValidateFailure` and `OnClose`.
+`Callback` interface is used to define the callback functions. The `Callback` interface has three methods, `OnPingSuccess`, `OnPingFailure` and `OnClose`.
 
--   `OnValidateSuccess` is called when the object validation is successful.
--   `OnValidateFailure` is called when the object validation fails.
+-   `OnPingSuccess` is called when the object validation is successful.
+-   `OnPingFailure` is called when the object validation fails.
 -   `OnClose` is called when the object is destroyed.
 
 ## Example

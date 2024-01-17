@@ -77,9 +77,9 @@ func (p *Pool) Stop() {
 // executor 是连接池的执行器，定期检测连接状态
 // executor is the executor of the connection pool, periodically checks the connection status.
 func (p *Pool) executor() {
-	// 每 5 秒检测一次
-	// Check every 5 seconds.
-	ticker := time.NewTicker(time.Second * 5)
+	// 每 p.config.scanInterval 毫秒检测一次
+	// Check every p.config.scanInterval milliseconds.
+	ticker := time.NewTicker(time.Millisecond * time.Duration(p.config.scanInterval))
 
 	defer func() {
 		p.wg.Done()
@@ -114,12 +114,12 @@ func (p *Pool) executor() {
 						// 重置 Ping 次数
 						// Reset the number of Ping times.
 						item.SetValue(0)
-						p.config.callback.OnValidateSuccess(value)
+						p.config.callback.OnPingSuccess(value)
 					} else {
 						// Ping 次数加 1
 						// The number of Ping times plus 1.
 						item.SetValue(int64(retryCount) + 1)
-						p.config.callback.OnValidateFailure(value)
+						p.config.callback.OnPingFailure(value)
 					}
 				}
 				// 一定要返回 true，否则会导致 Range 函数提前退出

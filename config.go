@@ -6,16 +6,27 @@ const (
 	// 默认初始化元素的数量
 	// DefaultInitialize is the default number of elements to initialize.
 	DefaultInitialize = 1
+
 	// 默认最大重试次数
-	// DefaultMaxValidateRetry is the default number of times to retry a validation.
-	DefaultMaxValidateRetry = 3
+	// DefaultMaxPingRetry is the default number of times to retry a validation.
+	DefaultMaxPingRetry = 3
+
+	// 默认扫描全部对象实例间隔 (ms)
+	// DefaultScanInterval is the default interval to scan all object instances. (ms)
+	DefaultScanInterval = 10000
+
+	// 默认最小元素间隔 (ms)
+	// DefaultMiniItemsInterval is the default minimum interval between elements. (ms)
+	DefautMiniItemsInterval = 200
 )
 
 var (
 	// DefaultNewFunc is the default function to create a new element.
 	DefaultNewFunc = func() (any, error) { return nil, nil }
-	// DefaultValidateFunc is the default function to validate an element.
-	DefaultValidateFunc = func(any, int) bool { return true }
+
+	// DefaultPingFunc is the default function to validate an element.
+	DefaultPingFunc = func(any, int) bool { return true }
+
 	// DefaultCloseFunc is the default function to close an element.
 	DefaultCloseFunc = func(any) error { return nil }
 )
@@ -30,6 +41,7 @@ type Config struct {
 	// callback is a callback interface for handling events.
 	maxRetries   int
 	initialize   int
+	scanInterval int
 	newFunc      func() (any, error)
 	validateFunc func(any, int) bool
 	closeFunc    func(any) error
@@ -41,9 +53,10 @@ type Config struct {
 func NewConfig() *Config {
 	conf := Config{
 		initialize:   DefaultInitialize,
-		maxRetries:   DefaultMaxValidateRetry,
+		maxRetries:   DefaultMaxPingRetry,
+		scanInterval: DefaultScanInterval,
 		newFunc:      DefaultNewFunc,
-		validateFunc: DefaultValidateFunc,
+		validateFunc: DefaultPingFunc,
 		closeFunc:    DefaultCloseFunc,
 		callback:     &emptyCallback{},
 	}
@@ -71,6 +84,13 @@ func (c *Config) WithInitialize(init int) *Config {
 	return c
 }
 
+// WithScanInterval 设置扫描全部对象实例间隔
+// WithScanInterval sets the interval to scan all object instances.
+func (c *Config) WithScanInterval(scanInterval int) *Config {
+	c.scanInterval = scanInterval
+	return c
+}
+
 // WithNewFunc 设置创建元素的函数
 // WithNewFunc sets the function to create an element.
 func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
@@ -78,16 +98,16 @@ func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
 	return c
 }
 
-// WithValidateFunc 设置验证元素的函数
-// WithValidateFunc sets the function to validate an element.
-func (c *Config) WithValidateFunc(pingFunc func(any, int) bool) *Config {
+// WithPingFunc 设置验证元素的函数
+// WithPingFunc sets the function to validate an element.
+func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
 	c.validateFunc = pingFunc
 	return c
 }
 
-// WithValidateMaxRetries 设置最大重试次数
-// WithValidateMaxRetries sets the maximum number of retries.
-func (c *Config) WithValidateMaxRetries(maxRetries int) *Config {
+// WithPingMaxRetries 设置最大重试次数
+// WithPingMaxRetries sets the maximum number of retries.
+func (c *Config) WithPingMaxRetries(maxRetries int) *Config {
 	c.maxRetries = maxRetries
 	return c
 }
@@ -103,17 +123,25 @@ func (c *Config) WithCloseFunc(closeFunc func(any) error) *Config {
 // isConfigValid returns a valid configuration.
 func isConfigValid(conf *Config) *Config {
 	if conf != nil {
-		if conf.initialize <= 0 {
+		if conf.initialize < 0 {
 			conf.initialize = DefaultInitialize
 		}
 		if conf.maxRetries <= 0 || conf.maxRetries >= math.MaxUint16 {
-			conf.maxRetries = DefaultMaxValidateRetry
+			conf.maxRetries = DefaultMaxPingRetry
+		}
+		// 扫描间隔不能小于初始化元素间隔, 否则会导致初始化元素无法被扫描到。
+		// 如果 scanInterval <= initialize*DefautMiniItemsInterval, 则 scanInterval = DefaultScanInterval
+		// The scan interval cannot be less than the initialization element interval,
+		// otherwise the initialization element cannot be scanned.
+		// If scanInterval <= initialize*DefautMiniItemsInterval, then scanInterval = DefaultScanInterval
+		if conf.scanInterval <= conf.initialize*DefautMiniItemsInterval {
+			conf.scanInterval = DefaultScanInterval
 		}
 		if conf.newFunc == nil {
 			conf.newFunc = DefaultNewFunc
 		}
 		if conf.validateFunc == nil {
-			conf.validateFunc = DefaultValidateFunc
+			conf.validateFunc = DefaultPingFunc
 		}
 		if conf.closeFunc == nil {
 			conf.closeFunc = DefaultCloseFunc

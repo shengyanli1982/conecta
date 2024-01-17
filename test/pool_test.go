@@ -43,7 +43,7 @@ func testNewFunc() (any, error) {
 
 func TestPool_Put(t *testing.T) {
 	q0 := workqueue.NewSimpleQueue(nil)
-	p := conecta.NewPool(q0, nil)
+	p := conecta.New(q0, nil)
 	assert.NotNil(t, p)
 
 	defer p.Stop()
@@ -57,7 +57,7 @@ func TestPool_Put(t *testing.T) {
 
 func TestPool_Get(t *testing.T) {
 	q0 := workqueue.NewSimpleQueue(nil)
-	p := conecta.NewPool(q0, nil)
+	p := conecta.New(q0, nil)
 	assert.NotNil(t, p)
 
 	defer p.Stop()
@@ -85,7 +85,7 @@ func TestPool_GetOrCreate(t *testing.T) {
 	conf := conecta.NewConfig().WithNewFunc(testNewFunc)
 	assert.NotNil(t, conf)
 
-	p := conecta.NewPool(q0, conf)
+	p := conecta.New(q0, conf)
 	assert.NotNil(t, p)
 
 	defer p.Stop()
@@ -98,7 +98,7 @@ func TestPool_GetOrCreate(t *testing.T) {
 
 func TestPool_Stop(t *testing.T) {
 	q0 := workqueue.NewSimpleQueue(nil)
-	p := conecta.NewPool(q0, nil)
+	p := conecta.New(q0, nil)
 	assert.NotNil(t, p)
 
 	_ = p.Put("item1")
@@ -118,7 +118,7 @@ func TestPool_Stop(t *testing.T) {
 
 func TestPool_Len(t *testing.T) {
 	q0 := workqueue.NewSimpleQueue(nil)
-	p := conecta.NewPool(q0, nil)
+	p := conecta.New(q0, nil)
 	assert.NotNil(t, p)
 
 	defer p.Stop()
@@ -135,7 +135,7 @@ func TestPool_Callback(t *testing.T) {
 	conf := conecta.NewConfig().WithCallback(&testCallback{t: t}).WithPingFunc(testCallbackPingFunc).WithCloseFunc(testCallbackCloseFunc).WithPingMaxRetries(1)
 	assert.NotNil(t, conf)
 
-	p := conecta.NewPool(q0, conf)
+	p := conecta.New(q0, conf)
 	assert.NotNil(t, p)
 
 	defer p.Stop()
