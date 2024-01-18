@@ -13,6 +13,14 @@ import (
 // ErrorQueueClosed indicates that the queue has been closed.
 var ErrorQueueClosed = errors.New("queue is closed")
 
+// 创建元素失败
+// ErrorCreateElementFailed indicates that the creation of the element failed.
+var ErrorCreateElementFailed = errors.New("create element failed")
+
+// 队列接口为空
+// ErrorQueueInterfaceIsNil indicates that the queue interface is empty.
+var ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
+
 // 元素内存池
 // Element memory pool.
 var elementPool = itl.NewElementPool()
@@ -28,11 +36,11 @@ type Pool struct {
 
 // New 创建一个新的连接池
 // New creates a new connection pool.
-func New(queue QInterface, conf *Config) *Pool {
+func New(queue QInterface, conf *Config) (*Pool, error) {
 	// 如果队列为空，则返回 nil
 	// If the queue is empty, return nil.
 	if queue == nil {
-		return nil
+		return nil, ErrorQueueInterfaceIsNil
 	}
 
 	// 如果配置为空，则使用默认配置
@@ -49,6 +57,13 @@ func New(queue QInterface, conf *Config) *Pool {
 	}
 	pool.ctx, pool.cancel = context.WithCancel(context.Background())
 
+	// 初始化连接池
+	// Initialize the connection pool.
+	err := pool.initialize()
+	if err != nil {
+		return nil, err
+	}
+
 	// 启动执行器
 	// Start the executor.
 	pool.wg.Add(1)
@@ -56,7 +71,7 @@ func New(queue QInterface, conf *Config) *Pool {
 
 	// 返回连接池
 	// Return the connection pool.
-	return &pool
+	return &pool, nil
 }
 
 // Stop 停止连接池
@@ -72,6 +87,42 @@ func (p *Pool) Stop() {
 		// Close the queue.
 		p.queue.Stop()
 	})
+}
+
+func (p *Pool) initialize() error {
+	// 创建一个元素列表
+	// Create an element list.
+	elements := make([]any, 0)
+
+	// 创建 p.config.initialize 个元素
+	// Create p.config.initialize elements.
+	for i := 0; i < p.config.initialize; i++ {
+		// 创建新的元素
+		// Create a new element.
+		value, err := p.config.newFunc()
+		if err != nil {
+			// 如果创建元素失败，则直接退出
+			// If the creation of the element fails, exit directly.
+			return ErrorCreateElementFailed
+		}
+
+		// 创建元素成功，则将元素列表中
+		// If the creation of the element is successful, put the element in the list.
+		elements = append(elements, value)
+	}
+
+	// 将元素列表放入队列
+	// Put the element list into the queue.
+	for _, value := range elements {
+		err := p.queue.Add(value)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 返回 nil
+	// Return nil.
+	return nil
 }
 
 // executor 是连接池的执行器，定期检测连接状态
@@ -94,9 +145,9 @@ func (p *Pool) executor() {
 			// 遍历 queue 中的元素，然后对元素做 Ping 的检测
 			// Traverse the elements in the queue and perform Ping checks on them.
 			p.queue.Range(func(data any) bool {
-				item := data.(*itl.Element)
-				value := item.GetData()
-				retryCount := int(item.GetValue())
+				element := data.(*itl.Element)
+				value := element.GetData()
+				retryCount := int(element.GetValue())
 				// 如果元素的 Ping 次数超过最大重试次数，则关闭连接
 				// If the number of Ping times of the element exceeds the maximum number of retries, the connection is closed.
 				if retryCount >= p.config.maxRetries {
@@ -110,7 +161,7 @@ func (p *Pool) executor() {
 
 						// 对象中的数据置空
 						// Empty the data in the object.
-						item.SetData(nil)
+						element.SetData(nil)
 					}
 				} else {
 					// 执行 Ping 检测
@@ -118,12 +169,12 @@ func (p *Pool) executor() {
 					if ok := p.config.pingFunc(value, retryCount); ok {
 						// 重置 Ping 次数
 						// Reset the number of Ping times.
-						item.SetValue(0)
+						element.SetValue(0)
 						p.config.callback.OnPingSuccess(value)
 					} else {
 						// Ping 次数加 1
 						// The number of Ping times plus 1.
-						item.SetValue(int64(retryCount) + 1)
+						element.SetValue(int64(retryCount) + 1)
 						p.config.callback.OnPingFailure(value)
 					}
 				}
@@ -146,16 +197,16 @@ func (p *Pool) Put(data any) error {
 
 	// 从对象池中获取一个元素
 	// Get an element from the object pool.
-	item := elementPool.Get()
+	element := elementPool.Get()
 
 	// 设置元素的数据
 	// Set the data of the element.
-	item.SetData(data)
-	item.SetValue(0)
+	element.SetData(data)
+	element.SetValue(0)
 
 	// 将元素放入队列
 	// Put the element into the queue.
-	return p.queue.Add(item)
+	return p.queue.Add(element)
 }
 
 // Get 从连接池中获取数据
@@ -172,15 +223,15 @@ func (p *Pool) Get() (any, error) {
 	for {
 		// 从队列中获取一个元素
 		// Get an element from the queue.
-		item, err := p.queue.Get()
+		element, err := p.queue.Get()
 		if err != nil {
 			return nil, err
 		}
-		p.queue.Done(item)
+		p.queue.Done(element)
 
 		// 从元素中获取数据
 		// Get data from the element.
-		data := item.(*itl.Element)
+		data := element.(*itl.Element)
 		value := data.GetData()
 
 		// 如果元素的值不为 nil，则返回元素的值

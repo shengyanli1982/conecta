@@ -41,7 +41,7 @@ $ go get github.com/shengyanli1982/conecta
 `Conecta` has a config object, which can be used to configure the batch process behavior. The config object can be used following methods to set.
 
 -   `WithCallback` set the callback functions. The default is `&emptyCallback{}`.
--   `WithInitialize` set the minimum number of objects when initializing the pool. The default is `1`.
+-   `WithInitialize` set the minimum number of objects when initializing the pool. The default is `0`.
 -   `WithPingMaxRetries` set the maximum number of object validation failures before destroying the object. The default is `3`.
 -   `WithNewFunc` set the object creation function. The default is `DefaultNewFunc`.
 -   `WithPingFunc` set the object validation function. The default is `DefaultPingFunc`
@@ -339,7 +339,11 @@ func main() {
 
 	// Create a Conecta pool.
 	conf := conecta.NewConfig().WithNewFunc(NewFunc).WithPingFunc(PingFunc).WithCloseFunc(CloseFunc).WithPingMaxRetries(1).WithScanInterval(scanInterval).WithCallback(&TestCallback{})
-	pool := conecta.New(baseQ, conf)
+	pool, err := conecta.New(baseQ, conf)
+	if err != nil {
+		fmt.Println("!! [main] create pool error:", err)
+		return
+	}
 	defer pool.Stop()
 
 	// Create a TCP server.

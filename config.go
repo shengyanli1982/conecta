@@ -5,7 +5,7 @@ import "math"
 const (
 	// 默认初始化元素的数量
 	// DefaultInitialize is the default number of elements to initialize.
-	DefaultInitialize = 1
+	DefaultInitialize = 0
 
 	// 默认最大重试次数
 	// DefaultMaxPingRetry is the default number of times to retry a validation.
