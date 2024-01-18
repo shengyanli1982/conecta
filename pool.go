@@ -100,13 +100,18 @@ func (p *Pool) executor() {
 				// 如果元素的 Ping 次数超过最大重试次数，则关闭连接
 				// If the number of Ping times of the element exceeds the maximum number of retries, the connection is closed.
 				if retryCount >= p.config.maxRetries {
-					// 关闭连接
-					// Close the connection.
-					err := p.config.closeFunc(value)
-					p.config.callback.OnClose(value, err)
-					// 对象中的数据置空
-					// Empty the data in the object.
-					item.SetData(nil)
+					// 如果元素的值不为 nil，则关闭连接
+					// If the value of the element is not nil, close the connection.
+					if value != nil {
+						// 关闭连接
+						// Close the connection.
+						err := p.config.closeFunc(value)
+						p.config.callback.OnClose(value, err)
+
+						// 对象中的数据置空
+						// Empty the data in the object.
+						item.SetData(nil)
+					}
 				} else {
 					// 执行 Ping 检测
 					// Perform Ping checks.
