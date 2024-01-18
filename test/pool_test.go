@@ -131,8 +131,10 @@ func TestPool_Len(t *testing.T) {
 }
 
 func TestPool_Callback(t *testing.T) {
+	scanInterval := 5000
+
 	q0 := workqueue.NewSimpleQueue(nil)
-	conf := conecta.NewConfig().WithCallback(&testCallback{t: t}).WithPingFunc(testCallbackPingFunc).WithCloseFunc(testCallbackCloseFunc).WithPingMaxRetries(1)
+	conf := conecta.NewConfig().WithCallback(&testCallback{t: t}).WithPingFunc(testCallbackPingFunc).WithCloseFunc(testCallbackCloseFunc).WithPingMaxRetries(1).WithScanInterval(scanInterval)
 	assert.NotNil(t, conf)
 
 	p := conecta.New(q0, conf)
@@ -145,5 +147,5 @@ func TestPool_Callback(t *testing.T) {
 
 	fmt.Println("Please wait for the callback to be executed... (11 seconds)")
 
-	time.Sleep(time.Second * 11)
+	time.Sleep(time.Millisecond * time.Duration(scanInterval*2+1000))
 }

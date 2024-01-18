@@ -43,7 +43,7 @@ type Config struct {
 	initialize   int
 	scanInterval int
 	newFunc      func() (any, error)
-	validateFunc func(any, int) bool
+	pingFunc     func(any, int) bool
 	closeFunc    func(any) error
 	callback     Callback
 }
@@ -56,7 +56,7 @@ func NewConfig() *Config {
 		maxRetries:   DefaultMaxPingRetry,
 		scanInterval: DefaultScanInterval,
 		newFunc:      DefaultNewFunc,
-		validateFunc: DefaultPingFunc,
+		pingFunc:     DefaultPingFunc,
 		closeFunc:    DefaultCloseFunc,
 		callback:     &emptyCallback{},
 	}
@@ -101,7 +101,7 @@ func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
 // WithPingFunc 设置验证元素的函数
 // WithPingFunc sets the function to validate an element.
 func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
-	c.validateFunc = pingFunc
+	c.pingFunc = pingFunc
 	return c
 }
 
@@ -140,8 +140,8 @@ func isConfigValid(conf *Config) *Config {
 		if conf.newFunc == nil {
 			conf.newFunc = DefaultNewFunc
 		}
-		if conf.validateFunc == nil {
-			conf.validateFunc = DefaultPingFunc
+		if conf.pingFunc == nil {
+			conf.pingFunc = DefaultPingFunc
 		}
 		if conf.closeFunc == nil {
 			conf.closeFunc = DefaultCloseFunc

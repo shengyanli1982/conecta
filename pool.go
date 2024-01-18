@@ -110,7 +110,7 @@ func (p *Pool) executor() {
 				} else {
 					// 执行 Ping 检测
 					// Perform Ping checks.
-					if ok := p.config.validateFunc(value, retryCount); ok {
+					if ok := p.config.pingFunc(value, retryCount); ok {
 						// 重置 Ping 次数
 						// Reset the number of Ping times.
 						item.SetValue(0)

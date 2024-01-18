@@ -121,5 +121,24 @@ type QInterface interface {
 **Result**
 
 ```bash
-
+$ go run demo.go
+*** [TCPClient] write: [109 115 103 49]
+>>> [TCPServer] new client: 127.0.0.1:53511
+>>> [TCPServer] read: msg1
+>>> [TCPServer] write: msg1
+*** [TCPClient] read: msg1
+!! [main] please wait for the client msg processed and once scan to be executed... (6 seconds)
+*** [TCPClient] write: [112 105 110 103]
+>>> [TCPServer] read: ping
+>>> [TCPServer] write: ping
+*** [TCPClient] read: ping
+$$ OnPingSuccess &{0xc000186038 {0 {0 0}}}
+>>> [TCPServer] read error: read tcp 127.0.0.1:13134->127.0.0.1:53511: use of closed network connection
+*** [TCPClient] write: [109 115 103 50]
+*** [TCPClient] read error: read tcp 127.0.0.1:53511->127.0.0.1:13134: read: connection reset by peer
+!! [main] please wait for the scan to be executed... (11 seconds)
+*** [TCPClient] write error: write tcp 127.0.0.1:53511->127.0.0.1:13134: write: broken pipe
+$$ OnPingFailure &{0xc000186038 {0 {0 0}}}
+*** [TCPClient] close
+$$ OnClose &{0xc000186038 {1 {0 0}}} <nil>
 ```
