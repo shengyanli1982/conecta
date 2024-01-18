@@ -13,8 +13,13 @@ import (
 )
 
 var (
+	// listen address
 	listenAddr = "0.0.0.0"
+
+	// server address
 	serverAddr = "127.0.0.1"
+
+	// server port
 	serverPort = 13134
 )
 

@@ -21,6 +21,8 @@ var ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 // Element memory pool.
 var elementPool = itl.NewElementPool()
 
+// 连接池结构体
+// Connection pool structure.
 type Pool struct {
 	queue  QInterface
 	config *Config
@@ -85,6 +87,8 @@ func (p *Pool) Stop() {
 	})
 }
 
+// 初始化连接池
+// initializes the connection pool.
 func (p *Pool) initialize() error {
 	// 创建一个元素列表
 	// Create an element list.

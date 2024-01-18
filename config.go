@@ -31,6 +31,8 @@ var (
 	DefaultCloseFunc = func(any) error { return nil }
 )
 
+// 连接池配置结构体
+// Config is the configuration struct of the connection pool.
 type Config struct {
 	// These variables define the configuration options for the `Config` struct.
 	// maxRetries specifies the maximum number of times to retry a validation.
