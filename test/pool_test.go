@@ -149,3 +149,81 @@ func TestPool_Callback(t *testing.T) {
 
 	time.Sleep(time.Millisecond * time.Duration(scanInterval*2+1000))
 }
+
+func TestPool_Initialize(t *testing.T) {
+	q0 := workqueue.NewSimpleQueue(nil)
+	conf := conecta.NewConfig().WithInitialize(2).WithNewFunc(testNewFunc)
+	assert.NotNil(t, conf)
+
+	p := conecta.New(q0, conf)
+	assert.NotNil(t, p)
+
+	defer p.Stop()
+
+	assert.Equal(t, 2, p.Len())
+}
+
+func TestPool_PutWithParallel(t *testing.T) {
+	q0 := workqueue.NewSimpleQueue(nil)
+	p := conecta.New(q0, nil)
+	assert.NotNil(t, p)
+
+	defer p.Stop()
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			_ = p.Put("item1")
+		}()
+	}
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, 100, p.Len())
+}
+
+func TestPool_GetWithParallel(t *testing.T) {
+	q0 := workqueue.NewSimpleQueue(nil)
+	p := conecta.New(q0, nil)
+	assert.NotNil(t, p)
+
+	defer p.Stop()
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			_ = p.Put("item1")
+		}()
+	}
+
+	time.Sleep(time.Second)
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			_, _ = p.Get()
+		}()
+	}
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, 0, p.Len())
+}
+
+func TestPool_GetOrCreateWithParallel(t *testing.T) {
+	q0 := workqueue.NewSimpleQueue(nil)
+	conf := conecta.NewConfig().WithNewFunc(testNewFunc)
+	assert.NotNil(t, conf)
+
+	p := conecta.New(q0, conf)
+	assert.NotNil(t, p)
+
+	defer p.Stop()
+
+	for i := 0; i < 20; i++ {
+		go func() {
+			_, _ = p.GetOrCreate()
+		}()
+	}
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, 0, p.Len())
+}
