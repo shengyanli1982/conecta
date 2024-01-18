@@ -13,10 +13,6 @@ import (
 // ErrorQueueClosed indicates that the queue has been closed.
 var ErrorQueueClosed = errors.New("queue is closed")
 
-// 创建元素失败
-// ErrorCreateElementFailed indicates that the creation of the element failed.
-var ErrorCreateElementFailed = errors.New("create element failed")
-
 // 队列接口为空
 // ErrorQueueInterfaceIsNil indicates that the queue interface is empty.
 var ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
@@ -103,7 +99,7 @@ func (p *Pool) initialize() error {
 		if err != nil {
 			// 如果创建元素失败，则直接退出
 			// If the creation of the element fails, exit directly.
-			return ErrorCreateElementFailed
+			return err
 		}
 
 		// 创建元素成功，则将元素列表中
