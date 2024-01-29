@@ -63,16 +63,16 @@ $ go get github.com/shengyanli1982/conecta
 
 ## Create
 
-`Conecta`'s `New` function is used to create a `Conecta` object. The `New` function receives a `Config` object and a `QInterface` interface as parameters.
+`Conecta`'s `New` function is used to create a `Conecta` object. The `New` function receives a `Config` object and a `QueueInterface` interface as parameters.
 
-The `QInterface` interface is used to define the queue which is used to store the objects.
+The `QueueInterface` interface is used to define the queue which is used to store the objects.
 
-Following is the `QInterface` interface.
+Following is the `QueueInterface` interface.
 
 ```go
 // 队列方法接口
 // Queue interface
-type QInterface interface {
+type QueueInterface interface {
 	// 添加一个元素到队列
 	// Add adds an element to the queue.
 	Add(element any) error
