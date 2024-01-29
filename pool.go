@@ -17,24 +17,21 @@ var ErrorQueueClosed = errors.New("queue is closed")
 // ErrorQueueInterfaceIsNil indicates that the queue interface is empty.
 var ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 
-// 元素内存池
-// Element memory pool.
-var elementPool = itl.NewElementPool()
-
 // 连接池结构体
 // Connection pool structure.
 type Pool struct {
-	queue  QInterface
-	config *Config
-	wg     sync.WaitGroup
-	once   sync.Once
-	ctx    context.Context
-	cancel context.CancelFunc
+	queue       QueueInterface
+	config      *Config
+	wg          sync.WaitGroup
+	once        sync.Once
+	ctx         context.Context
+	cancel      context.CancelFunc
+	elementpool *itl.ElementPool
 }
 
 // New 创建一个新的连接池
 // New creates a new connection pool.
-func New(queue QInterface, conf *Config) (*Pool, error) {
+func New(queue QueueInterface, conf *Config) (*Pool, error) {
 	// 如果队列为空，则返回 nil
 	// If the queue is empty, return nil.
 	if queue == nil {
@@ -48,10 +45,11 @@ func New(queue QInterface, conf *Config) (*Pool, error) {
 	// 创建连接池
 	// Create a connection pool.
 	pool := Pool{
-		queue:  queue,
-		config: conf,
-		wg:     sync.WaitGroup{},
-		once:   sync.Once{},
+		queue:       queue,
+		config:      conf,
+		wg:          sync.WaitGroup{},
+		once:        sync.Once{},
+		elementpool: itl.NewElementPool(),
 	}
 	pool.ctx, pool.cancel = context.WithCancel(context.Background())
 
@@ -141,6 +139,7 @@ func (p *Pool) executor() {
 		select {
 		case <-p.ctx.Done():
 			return
+
 		case <-ticker.C:
 			// 遍历 queue 中的元素，然后对元素做 Ping 的检测
 			// Traverse the elements in the queue and perform Ping checks on them.
@@ -178,6 +177,7 @@ func (p *Pool) executor() {
 						p.config.callback.OnPingFailure(value)
 					}
 				}
+
 				// 一定要返回 true，否则会导致 Range 函数提前退出
 				// Be sure to return true, otherwise it will cause the Range function to exit early.
 				return true
@@ -197,7 +197,7 @@ func (p *Pool) Put(data any) error {
 
 	// 从对象池中获取一个元素
 	// Get an element from the object pool.
-	element := elementPool.Get()
+	element := p.elementpool.Get()
 
 	// 设置元素的数据
 	// Set the data of the element.
@@ -237,13 +237,13 @@ func (p *Pool) Get() (any, error) {
 		// 如果元素的值不为 nil，则返回元素的值
 		// If the value of the element is not nil, return the value of the element.
 		if value != nil {
-			elementPool.Put(data)
+			p.elementpool.Put(data)
 			return value, nil
 		}
 
 		//如果元素的值为 nil，则将元素放回对象池，继续获取
 		// If the value of the element is nil, put the element back into the object pool and continue to get it.
-		elementPool.Put(data)
+		p.elementpool.Put(data)
 	}
 }
 

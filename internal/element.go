@@ -41,15 +41,15 @@ func (e *Element) Reset() {
 }
 
 // 对象池
-// object ObjectPool.
-type ObjectPool struct {
+// object ElementPool.
+type ElementPool struct {
 	pool *sync.Pool
 }
 
 // 新建对象池
 // new ObjectPool.
-func NewElementPool() *ObjectPool {
-	return &ObjectPool{
+func NewElementPool() *ElementPool {
+	return &ElementPool{
 		pool: &sync.Pool{
 			New: func() any {
 				return &Element{}
@@ -60,13 +60,13 @@ func NewElementPool() *ObjectPool {
 
 // 从对象池中获取一个元素
 // Get an element from the object pool.
-func (p *ObjectPool) Get() *Element {
+func (p *ElementPool) Get() *Element {
 	return p.pool.Get().(*Element)
 }
 
 // 将元素放入对象池
 // Put an element into the object pool.
-func (p *ObjectPool) Put(e *Element) {
+func (p *ElementPool) Put(e *Element) {
 	if e != nil {
 		e.Reset()
 		p.pool.Put(e)

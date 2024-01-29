@@ -16,9 +16,15 @@ func (c *emptyCallback) OnPingSuccess(any)  {} // 空实现 (no-op)
 func (c *emptyCallback) OnPingFailure(any)  {} // 空实现 (no-op)
 func (c *emptyCallback) OnClose(any, error) {} // 空实现 (no-op)
 
+// 新建空回调
+// newEmptyCallback returns a new emptyCallback.
+func newEmptyCallback() *emptyCallback {
+	return &emptyCallback{}
+}
+
 // 队列方法接口
 // Queue interface
-type QInterface interface {
+type QueueInterface interface {
 	// 添加一个元素到队列
 	// Add adds an element to the queue.
 	Add(element any) error

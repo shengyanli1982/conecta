@@ -60,7 +60,7 @@ func NewConfig() *Config {
 		newFunc:      DefaultNewFunc,
 		pingFunc:     DefaultPingFunc,
 		closeFunc:    DefaultCloseFunc,
-		callback:     &emptyCallback{},
+		callback:     newEmptyCallback(),
 	}
 
 	return &conf
@@ -100,6 +100,13 @@ func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
 	return c
 }
 
+// WithCloseFunc 设置关闭元素的函数
+// WithCloseFunc sets the function to close an element.
+func (c *Config) WithCloseFunc(closeFunc func(any) error) *Config {
+	c.closeFunc = closeFunc
+	return c
+}
+
 // WithPingFunc 设置验证元素的函数
 // WithPingFunc sets the function to validate an element.
 func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
@@ -111,13 +118,6 @@ func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
 // WithPingMaxRetries sets the maximum number of retries.
 func (c *Config) WithPingMaxRetries(maxRetries int) *Config {
 	c.maxRetries = maxRetries
-	return c
-}
-
-// WithCloseFunc 设置关闭元素的函数
-// WithCloseFunc sets the function to close an element.
-func (c *Config) WithCloseFunc(closeFunc func(any) error) *Config {
-	c.closeFunc = closeFunc
 	return c
 }
 
@@ -149,7 +149,7 @@ func isConfigValid(conf *Config) *Config {
 			conf.closeFunc = DefaultCloseFunc
 		}
 		if conf.callback == nil {
-			conf.callback = &emptyCallback{}
+			conf.callback = newEmptyCallback()
 		}
 	} else {
 		return NewConfig()
