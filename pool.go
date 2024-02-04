@@ -90,7 +90,7 @@ func (p *Pool) Stop() {
 func (p *Pool) initialize() error {
 	// 创建一个元素列表
 	// Create an element list.
-	elements := make([]any, 0)
+	elements := make([]any, 0, p.config.initialize)
 
 	// 创建 p.config.initialize 个元素
 	// Create p.config.initialize elements.
