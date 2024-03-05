@@ -51,9 +51,10 @@ To quickly get started with `Conecta`, follow these steps:
 -   `WithCloseFunc`: Set the object destruction function. The default is `DefaultCloseFunc`.
 -   `WithScanInterval`: Set the interval between two scans. The default is `10000ms`.
 
-> [!NOTE] > **Conecta** starts a goroutine to scan the elements in the pool. The scan interval is set using `WithScanInterval`. The scan process will block objects that have not been used for a long time, especially when there are many objects in the pool.
+> [!NOTE]
+> The **Conecta** utilizes a goroutine to periodically scan the elements in the pool. The scan interval can be customized using the `WithScanInterval` method. This scan process helps identify and block objects that have been idle for a long time, especially when the pool contains a large number of objects.
 >
-> If you plan to use **Conecta** in a long-running program, it is recommended to set the scan interval to a reasonable value, such as more than **10 seconds**.
+> For optimal performance in long-running programs, it is recommended to set the scan interval to a reasonable value, such as more than **10 seconds**.
 
 ## Methods
 
