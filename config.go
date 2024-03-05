@@ -2,58 +2,39 @@ package conecta
 
 import "math"
 
+// 定义一些默认的常量
+// Define some default constants
 const (
-	// 默认初始化元素的数量
-	// DefaultInitialize is the default number of elements to initialize.
-	DefaultInitialize = 0
-
-	// 默认最大重试次数
-	// DefaultMaxPingRetry is the default number of times to retry a validation.
-	DefaultMaxPingRetry = 3
-
-	// 默认扫描全部对象实例间隔 (ms)
-	// DefaultScanInterval is the default interval to scan all object instances. (ms)
-	DefaultScanInterval = 10000
-
-	// 默认最小元素间隔 (ms)
-	// DefaultMiniItemsInterval is the default minimum interval between elements. (ms)
-	DefautMiniItemsInterval = 200
+	DefaultInitialize       = 0     // 默认初始化元素的数量 Default number of elements to initialize
+	DefaultMaxPingRetry     = 3     // 默认最大重试次数 Default maximum number of retries
+	DefaultScanInterval     = 10000 // 默认扫描全部对象实例间隔 (ms) Default interval to scan all object instances (ms)
+	DefautMiniItemsInterval = 200   // 默认最小元素间隔 (ms) Default minimum element interval (ms)
 )
 
+// 定义一些默认的函数
+// Define some default functions
 var (
-	// DefaultNewFunc is the default function to create a new element.
-	DefaultNewFunc = func() (any, error) { return nil, nil }
-
-	// DefaultPingFunc is the default function to validate an element.
-	DefaultPingFunc = func(any, int) bool { return true }
-
-	// DefaultCloseFunc is the default function to close an element.
-	DefaultCloseFunc = func(any) error { return nil }
+	DefaultNewFunc   = func() (any, error) { return nil, nil } // 默认的创建新元素的函数 Default function to create a new element
+	DefaultPingFunc  = func(any, int) bool { return true }     // 默认的验证函数 Default validation function
+	DefaultCloseFunc = func(any) error { return nil }          // 默认的关闭函数 Default close function
 )
 
-// 连接池配置结构体
-// Config is the configuration struct of the connection pool.
+// Config 是配置的结构体
+// Config is the struct of configuration
 type Config struct {
-	// These variables define the configuration options for the `Config` struct.
-	// maxRetries specifies the maximum number of times to retry a validation.
-	// initialize specifies the number of elements to initialize.
-	// newFunc is a function that creates a new element.
-	// validateFunc is a function that validates an element.
-	// closeFunc is a function that closes an element.
-	// callback is a callback interface for handling events.
-	maxRetries   int
-	initialize   int
-	scanInterval int
-	newFunc      func() (any, error)
-	pingFunc     func(any, int) bool
-	closeFunc    func(any) error
-	callback     Callback
+	maxRetries   int       // 最大重试次数 Maximum number of retries
+	initialize   int       // 初始化元素的数量 Number of elements to initialize
+	scanInterval int       // 扫描全部对象实例间隔 Interval to scan all object instances
+	newFunc      NewFunc   // 创建新元素的函数 Function to create a new element
+	pingFunc     PingFunc  // 验证函数 Validation function
+	closeFunc    CloseFunc // 关闭函数 Close function
+	callback     Callback  // 回调函数 Callback function
 }
 
-// 返回一个新的配置
-// NewConfig returns a new configuration.
+// NewConfig 是创建新的配置的函数
+// NewConfig is the function to create a new configuration
 func NewConfig() *Config {
-	conf := Config{
+	return &Config{
 		initialize:   DefaultInitialize,
 		maxRetries:   DefaultMaxPingRetry,
 		scanInterval: DefaultScanInterval,
@@ -62,67 +43,65 @@ func NewConfig() *Config {
 		closeFunc:    DefaultCloseFunc,
 		callback:     newEmptyCallback(),
 	}
-
-	return &conf
 }
 
-// 返回一个默认的配置
-// DefaultConfig returns a default configuration.
+// DefaultConfig 是获取默认配置的函数
+// DefaultConfig is the function to get the default configuration
 func DefaultConfig() *Config {
 	return NewConfig()
 }
 
-// WithCallback 设置回调接口
-// WithCallback sets the callback interface.
+// WithCallback 是设置回调函数的方法
+// WithCallback is the method to set the callback function
 func (c *Config) WithCallback(callback Callback) *Config {
 	c.callback = callback
 	return c
 }
 
-// WithInitialize 设置初始化元素的数量
-// WithInitialize sets the number of elements to initialize.
+// WithInitialize 是设置初始化元素的数量的方法
+// WithInitialize is the method to set the number of elements to initialize
 func (c *Config) WithInitialize(init int) *Config {
 	c.initialize = init
 	return c
 }
 
-// WithScanInterval 设置扫描全部对象实例间隔
-// WithScanInterval sets the interval to scan all object instances.
+// WithScanInterval 是设置扫描全部对象实例间隔的方法
+// WithScanInterval is the method to set the interval to scan all object instances
 func (c *Config) WithScanInterval(scanInterval int) *Config {
 	c.scanInterval = scanInterval
 	return c
 }
 
-// WithNewFunc 设置创建元素的函数
-// WithNewFunc sets the function to create an element.
-func (c *Config) WithNewFunc(newFunc func() (any, error)) *Config {
+// WithNewFunc 是设置创建新元素的函数的方法
+// WithNewFunc is the method to set the function to create a new element
+func (c *Config) WithNewFunc(newFunc NewFunc) *Config {
 	c.newFunc = newFunc
 	return c
 }
 
-// WithCloseFunc 设置关闭元素的函数
-// WithCloseFunc sets the function to close an element.
-func (c *Config) WithCloseFunc(closeFunc func(any) error) *Config {
+// WithCloseFunc 是设置关闭函数的方法
+// WithCloseFunc is the method to set the close function
+func (c *Config) WithCloseFunc(closeFunc CloseFunc) *Config {
 	c.closeFunc = closeFunc
 	return c
 }
 
-// WithPingFunc 设置验证元素的函数
-// WithPingFunc sets the function to validate an element.
-func (c *Config) WithPingFunc(pingFunc func(any, int) bool) *Config {
+// WithPingFunc 是设置验证函数的方法
+// WithPingFunc is the method to set the validation function
+func (c *Config) WithPingFunc(pingFunc PingFunc) *Config {
 	c.pingFunc = pingFunc
 	return c
 }
 
-// WithPingMaxRetries 设置最大重试次数
-// WithPingMaxRetries sets the maximum number of retries.
+// WithPingMaxRetries 是设置最大重试次数的方法
+// WithPingMaxRetries is the method to set the maximum number of retries
 func (c *Config) WithPingMaxRetries(maxRetries int) *Config {
 	c.maxRetries = maxRetries
 	return c
 }
 
-// 返回一个有效的配置
-// isConfigValid returns a valid configuration.
+// isConfigValid 是验证配置是否有效的函数
+// isConfigValid is the function to validate whether the configuration is valid
 func isConfigValid(conf *Config) *Config {
 	if conf != nil {
 		if conf.initialize < 0 {
@@ -131,11 +110,6 @@ func isConfigValid(conf *Config) *Config {
 		if conf.maxRetries <= 0 || conf.maxRetries >= math.MaxUint16 {
 			conf.maxRetries = DefaultMaxPingRetry
 		}
-		// 扫描间隔不能小于初始化元素间隔, 否则会导致初始化元素无法被扫描到。
-		// 如果 scanInterval <= initialize*DefautMiniItemsInterval, 则 scanInterval = DefaultScanInterval
-		// The scan interval cannot be less than the initialization element interval,
-		// otherwise the initialization element cannot be scanned.
-		// If scanInterval <= initialize*DefautMiniItemsInterval, then scanInterval = DefaultScanInterval
 		if conf.scanInterval <= conf.initialize*DefautMiniItemsInterval {
 			conf.scanInterval = DefaultScanInterval
 		}
@@ -152,7 +126,7 @@ func isConfigValid(conf *Config) *Config {
 			conf.callback = newEmptyCallback()
 		}
 	} else {
-		return NewConfig()
+		conf = NewConfig()
 	}
 
 	return conf

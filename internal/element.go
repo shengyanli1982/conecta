@@ -2,73 +2,73 @@ package internal
 
 import "sync"
 
-// 工作元素, 用于 Group 和 Queue
-// Worker Element, used by Group and Queue
+// Element 是一个结构体，用于 Group 和 Queue
+// Element is a struct, used by Group and Queue
 type Element struct {
-	data  any
-	value int64
+	data  any   // 数据
+	value int64 // 值
 }
 
-// 获取数据
-// get data.
+// GetData 是一个方法，用于获取 Element 的数据
+// GetData is a method to get the data of Element
 func (e *Element) GetData() any {
 	return e.data
 }
 
-// 获取值
-// get value.
+// GetValue 是一个方法，用于获取 Element 的值
+// GetValue is a method to get the value of Element
 func (e *Element) GetValue() int64 {
 	return e.value
 }
 
-// 设置数据
-// set data.
+// SetData 是一个方法，用于设置 Element 的数据
+// SetData is a method to set the data of Element
 func (e *Element) SetData(data any) {
 	e.data = data
 }
 
-// 设置值
-// set value.
+// SetValue 是一个方法，用于设置 Element 的值
+// SetValue is a method to set the value of Element
 func (e *Element) SetValue(value int64) {
 	e.value = value
 }
 
-// 重置
-// reset.
+// Reset 是一个方法，用于重置 Element 的数据和值
+// Reset is a method to reset the data and value of Element
 func (e *Element) Reset() {
 	e.data = nil
 	e.value = 0
 }
 
-// 对象池
-// object ElementPool.
+// ElementPool 是一个结构体，表示对象池
+// ElementPool is a struct, representing an object pool
 type ElementPool struct {
-	pool *sync.Pool
+	pool *sync.Pool // 对象池
 }
 
-// 新建对象池
-// new ObjectPool.
+// NewElementPool 是一个函数，用于新建对象池
+// NewElementPool is a function to create a new object pool
 func NewElementPool() *ElementPool {
 	return &ElementPool{
 		pool: &sync.Pool{
 			New: func() any {
-				return &Element{}
+				return &Element{} // 新建一个 Element 对象
 			},
 		},
 	}
 }
 
-// 从对象池中获取一个元素
-// Get an element from the object pool.
+// Get 是一个方法，用于从对象池中获取一个 Element
+// Get is a method to get an Element from the object pool
 func (p *ElementPool) Get() *Element {
 	return p.pool.Get().(*Element)
 }
 
-// 将元素放入对象池
-// Put an element into the object pool.
+// Put 是一个方法，用于将 Element 放入对象池
+// Put is a method to put an Element into the object pool
 func (p *ElementPool) Put(e *Element) {
 	if e != nil {
-		e.Reset()
+		e.Reset() // 重置 Element
 		p.pool.Put(e)
 	}
 }
