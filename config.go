@@ -5,43 +5,104 @@ import "math"
 // 定义一些默认的常量
 // Define some default constants
 const (
-	DefaultInitialize       = 0     // 默认初始化元素的数量 Default number of elements to initialize
-	DefaultMaxPingRetry     = 3     // 默认最大重试次数 Default maximum number of retries
-	DefaultScanInterval     = 10000 // 默认扫描全部对象实例间隔 (ms) Default interval to scan all object instances (ms)
-	DefautMiniItemsInterval = 200   // 默认最小元素间隔 (ms) Default minimum element interval (ms)
+	// 默认初始化元素的数量
+	// Default number of elements to initialize
+	DefaultInitialize = 0
+
+	// 默认最大重试次数
+	// Default maximum number of retries
+	DefaultMaxPingRetry = 3
+
+	// 默认扫描全部对象实例间隔 (ms)
+	// Default interval to scan all object instances (ms)
+	DefaultScanInterval = 10000
+
+	// 默认最小元素间隔 (ms)
+	// Default minimum element interval (ms)
+	DefautMiniItemsInterval = 200
 )
 
 // 定义一些默认的函数
 // Define some default functions
 var (
-	DefaultNewFunc   = func() (any, error) { return nil, nil } // 默认的创建新元素的函数 Default function to create a new element
-	DefaultPingFunc  = func(any, int) bool { return true }     // 默认的验证函数 Default validation function
-	DefaultCloseFunc = func(any) error { return nil }          // 默认的关闭函数 Default close function
+	// 默认的创建新元素的函数
+	// Default function to create a new element
+	DefaultNewFunc = func() (any, error) { return nil, nil }
+
+	// 默认的验证函数
+	// Default validation function
+	DefaultPingFunc = func(any, int) bool { return true }
+
+	// 默认的关闭函数
+	// Default close function
+	DefaultCloseFunc = func(any) error { return nil }
 )
 
 // Config 是配置的结构体
 // Config is the struct of configuration
 type Config struct {
-	maxRetries   int       // 最大重试次数 Maximum number of retries
-	initialize   int       // 初始化元素的数量 Number of elements to initialize
-	scanInterval int       // 扫描全部对象实例间隔 Interval to scan all object instances
-	newFunc      NewFunc   // 创建新元素的函数 Function to create a new element
-	pingFunc     PingFunc  // 验证函数 Validation function
-	closeFunc    CloseFunc // 关闭函数 Close function
-	callback     Callback  // 回调函数 Callback function
+	// 最大重试次数
+	// Maximum number of retries
+	maxRetries int
+
+	// 初始化元素的数量
+	// Number of elements to initialize
+	initialize int
+
+	// 扫描全部对象实例间隔
+	// Interval to scan all object instances
+	scanInterval int
+
+	// 创建新元素的函数
+	// Function to create a new element
+	newFunc NewFunc
+
+	// 验证函数
+	// Validation function
+	pingFunc PingFunc
+
+	// 关闭函数
+	// Close function
+	closeFunc CloseFunc
+
+	// 回调函数
+	// Callback function
+	callback Callback
 }
 
 // NewConfig 是创建新的配置的函数
 // NewConfig is the function to create a new configuration
 func NewConfig() *Config {
+	// 返回一个新的配置对象，其中包含了默认的初始化元素数量、最大重试次数、扫描间隔、创建新元素的函数、验证函数、关闭函数和回调函数
+	// Returns a new configuration object, which includes the default number of elements to initialize, maximum number of retries, scan interval, function to create a new element, validation function, close function, and callback function
 	return &Config{
-		initialize:   DefaultInitialize,
-		maxRetries:   DefaultMaxPingRetry,
+		// 默认的初始化元素数量
+		// Default number of elements to initialize
+		initialize: DefaultInitialize,
+
+		// 默认的最大重试次数
+		// Default maximum number of retries
+		maxRetries: DefaultMaxPingRetry,
+
+		// 默认的扫描间隔
+		// Default scan interval
 		scanInterval: DefaultScanInterval,
-		newFunc:      DefaultNewFunc,
-		pingFunc:     DefaultPingFunc,
-		closeFunc:    DefaultCloseFunc,
-		callback:     newEmptyCallback(),
+
+		// 默认的创建新元素的函数
+		// Default function to create a new element
+		newFunc: DefaultNewFunc,
+
+		// 默认的验证函数
+		// Default validation function
+		pingFunc: DefaultPingFunc,
+
+		// 默认的关闭函数
+		// Default close function
+		closeFunc: DefaultCloseFunc,
+
+		// 默认的回调函数
+		// Default callback function
+		callback: newEmptyCallback(),
 	}
 }
 

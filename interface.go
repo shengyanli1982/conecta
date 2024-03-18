@@ -1,16 +1,28 @@
 package conecta
 
 // 定义函数类型 PingFunc，接收两个参数，返回一个布尔值
+// PingFunc 是用于检查元素是否可用的函数，如果元素可用，返回 true，否则返回 false
 // Define function type PingFunc, which takes two parameters and returns a boolean value
-type PingFunc = func(any, int) bool
+// PingFunc is a function used to check whether an element is available. If the element is available, it returns true, otherwise it returns false
+type PingFunc = func(element any, retryCount int) bool
 
-// 定义函数类型 NewFunc，返回一个任意类型和一个错误
-// Define function type NewFunc, which returns an any type and an error
-type NewFunc = func() (any, error)
+// 定义函数类型 NewFunc，返回一个任意类型的元素和一个错误
+// NewFunc 是用于创建新元素的函数
+// Define function type NewFunc, which returns an element of any type and an error
+// NewFunc is a function used to create new elements
+type NewFunc = func() (element any, err error)
 
-// 定义函数类型 CloseFunc，接收一个任意类型的参数，返回一个错误
-// Define function type CloseFunc, which takes an any type parameter and returns an error
-type CloseFunc = func(any) error
+// 定义函数类型 CloseFunc，接收一个任意类型的元素，返回一个错误
+// CloseFunc 是用于关闭元素的函数
+// Define function type CloseFunc, which takes an element of any type and returns an error
+// CloseFunc is a function used to close elements
+type CloseFunc = func(element any) error
+
+// 定义函数类型 RangeFunc，接收一个任意类型的元素，返回一个布尔值
+// RangeFunc 是用于遍历元素的函数，如果返回 true，则继续遍历，否则停止遍历
+// Define function type RangeFunc, which takes an element of any type and returns a boolean value
+// RangeFunc is a function used to traverse elements. If it returns true, the traversal continues, otherwise the traversal stops
+type RangeFunc = func(element any) bool
 
 // Callback 是一个接口，定义了三个方法，分别在 Ping 成功、失败和关闭时调用
 // Callback is an interface that defines three methods, which are called when Ping is successful, fails, and closes, respectively
