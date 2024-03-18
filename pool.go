@@ -368,12 +368,38 @@ func (p *Pool) Len() int {
 	return p.queue.Len()
 }
 
-// Range 方法接收一个 RangeFunc 类型的函数作为参数
-// 该方法会遍历连接池中的所有元素，并对每个元素执行传入的函数
-// The Range method takes a function of type RangeFunc as a parameter
-// This method will traverse all the elements in the connection pool and execute the passed function for each element
-func (p *Pool) Range(fn RangeFunc) {
-	// 调用队列的 Range 方法，传入的函数会被应用到队列中的每个元素
-	// Call the Range method of the queue, the passed function will be applied to each element in the queue
-	p.queue.Range(fn)
+// Reset 是 Pool 结构体的一个方法，用于重置连接池
+// Reset is a method of the Pool struct, used to reset the connection pool
+func (p *Pool) Reset() {
+	// 遍历连接池中的所有连接
+	// Traverse all connections in the connection pool
+	p.queue.Range(func(data any) bool {
+		// 将数据转换为 Element 类型
+		// Convert the data to Element type
+		element := data.(*itl.Element)
+
+		// 获取 Element 中的数据
+		// Get the data in Element
+		value := element.GetData()
+
+		// 如果数据不为空
+		// If the data is not null
+		if value != nil {
+			// 使用配置中的关闭函数关闭连接
+			// Use the close function in the configuration to close the connection
+			err := p.config.closeFunc(value)
+
+			// 调用配置中的回调函数的 OnClose 方法处理关闭连接后的操作
+			// Call the OnClose method of the callback function in the configuration to handle the operation after closing the connection
+			p.config.callback.OnClose(value, err)
+
+			// 重置 Element
+			// Reset Element
+			element.Reset()
+		}
+
+		// 返回 true 继续遍历
+		// Return true to continue traversing
+		return true
+	})
 }
