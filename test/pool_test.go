@@ -237,3 +237,25 @@ func TestPool_GetOrCreateWithParallel(t *testing.T) {
 
 	assert.Equal(t, 0, p.Len())
 }
+
+func TestPool_Reset(t *testing.T) {
+	queue := workqueue.NewSimpleQueue(nil)
+	conf := conecta.NewConfig().WithCloseFunc(testCallbackCloseFunc).WithCallback(&testCallback{t: t})
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	assert.NotNil(t, p)
+	assert.Nil(t, err)
+
+	defer p.Stop()
+
+	_ = p.Put("item1")
+	_ = p.Put("item2")
+	_ = p.Put("item3")
+
+	assert.Equal(t, 3, p.Len())
+
+	p.Reset()
+
+	assert.Equal(t, 0, p.Len())
+}
