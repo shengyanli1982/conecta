@@ -1,22 +1,20 @@
 <div align="center">
-	<h1>Conecta</h1>
-	<p>A flexible Go module for managing diverse connection/session pools, with customizable lifecycle functions.</p>
-	<img src="assets/logo.png" alt="logo" width="300px">
+	<img src="assets/logo.png" alt="logo" width="500px">
 </div>
 
 # Introduction
 
-**Conecta** is a lightweight module connection/session pool written in Go.
+**Conecta** is a lightweight module for managing connection/session pools in Go.
 
-In the world of `Conecta`, any object can be a connection/session, such as `net.Conn`, `*sql.DB`, `*redis.Client`, `*grpc.ClientConn`, etc. You can use any wrapper object as a connection/session. In other words, `Conecta` is a generic connection/session pool.
+In the world of `Conecta`, any object can serve as a connection/session, such as `net.Conn`, `*sql.DB`, `*redis.Client`, `*grpc.ClientConn`, and more. You can use any wrapper object as a connection/session. In other words, `Conecta` is a versatile and generic connection/session pool.
 
-With `Conecta`, you can easily manage the creation, destruction, and validation of these objects. It provides customizable functions for creating, destroying, and validating objects, allowing you to tailor the behavior of the pool to your specific needs.
+With `Conecta`, you can easily handle the creation, destruction, and validation of these objects. It provides customizable functions for creating, destroying, and validating objects, allowing you to tailor the behavior of the pool to your specific requirements.
 
-# Advantage
+# Advantages
 
--   Simple and easy to use
--   No third-party dependencies
--   Low memory usage
+-   Simple and user-friendly
+-   No external dependencies required
+-   Efficient memory usage
 
 # Features
 
