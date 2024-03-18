@@ -402,4 +402,16 @@ func (p *Pool) Reset() {
 		// Return true to continue traversing
 		return true
 	})
+
+	// 这个循环会一直尝试从池中获取连接，直到无法获取（可能是因为池已经空了）
+	// This loop will keep trying to get a connection from the pool until it can't (possibly because the pool is empty)
+	for {
+		// 尝试从池中获取连接
+		// Try to get a connection from the pool
+		if _, err := p.Get(); err != nil {
+			// 如果出现错误，就跳出循环
+			// If there is an error, break the loop
+			break
+		}
+	}
 }
