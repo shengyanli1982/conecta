@@ -1,76 +1,75 @@
-English | [中文](./README_CN.md)
+[English](./README.md) | 中文
 
 <div align="center">
 	<img src="assets/logo.png" alt="logo" width="500px">
 </div>
 
-# Introduction
+# 简介
 
-**Conecta** is a lightweight module for managing connection/session pools in Go.
+**Conecta** 是一个轻量级的用于管理连接/会话池的 Go 模块。
 
-In the world of `Conecta`, any object can serve as a connection/session, such as `net.Conn`, `*sql.DB`, `*redis.Client`, `*grpc.ClientConn`, and more. You can use any wrapper object as a connection/session. In other words, `Conecta` is a versatile and generic connection/session pool.
+在 `Conecta` 的世界中，任何对象都可以作为连接/会话，例如 `net.Conn`、`*sql.DB`、`*redis.Client`、`*grpc.ClientConn` 等。您可以使用任何包装对象作为连接/会话。换句话说，`Conecta` 是一个多功能且通用的连接/会话池。
 
-With `Conecta`, you can easily handle the creation, destruction, and validation of these objects. It provides customizable functions for creating, destroying, and validating objects, allowing you to tailor the behavior of the pool to your specific requirements.
+通过 `Conecta`，您可以轻松处理这些对象的创建、销毁和验证。它提供了可自定义的函数用于创建、销毁和验证对象，使您能够根据特定需求定制池的行为。
 
-# Advantages
+# 优势
 
--   Simple and user-friendly
--   No external dependencies required
--   Efficient memory usage
+-   简单且易于使用
+-   无需外部依赖
+-   内存使用效率高
 
-# Features
+# 特性
 
--   [x] Custom object creation function
--   [x] Custom object destruction function
--   [x] Custom object validation function
--   [x] Custom minimum number of objects during pool initialization
--   [x] Custom maximum number of object validation failures before object destruction
+-   [x] 自定义对象创建函数
+-   [x] 自定义对象销毁函数
+-   [x] 自定义对象验证函数
+-   [x] 自定义池初始化期间的最小对象数量
+-   [x] 自定义对象验证失败的最大次数
 
-# Installation
+# 安装
 
 ```bash
 go get github.com/shengyanli1982/conecta
 ```
 
-# Quick Start
+# 快速入门
 
-To quickly get started with `Conecta`, follow these steps:
+要快速开始使用 `Conecta`，请按照以下步骤进行操作：
 
-1. Implement the `NewFunc`, `CloseFunc`, and `PingFunc` functions.
-2. Call the `New` function to create a `Conecta` object.
+1. 实现 `NewFunc`、`CloseFunc` 和 `PingFunc` 函数。
+2. 调用 `New` 函数创建一个 `Conecta` 对象。
 
-## Config
+## 配置
 
-`Conecta` provides a config object that allows you to customize its behavior. You can use the following methods to configure the config object:
+`Conecta` 提供了一个配置对象，允许您自定义其行为。您可以使用以下方法来配置配置对象：
 
--   `WithCallback`: Set the callback functions. The default is `&emptyCallback{}`.
--   `WithInitialize`: Set the minimum number of objects when initializing the pool. The default is `0`.
--   `WithPingMaxRetries`: Set the maximum number of object validation failures before destroying the object. The default is `3`.
--   `WithNewFunc`: Set the object creation function. The default is `DefaultNewFunc`.
--   `WithPingFunc`: Set the object validation function. The default is `DefaultPingFunc`.
--   `WithCloseFunc`: Set the object destruction function. The default is `DefaultCloseFunc`.
--   `WithScanInterval`: Set the interval between two scans. The default is `10000ms`.
+-   `WithCallback`：设置回调函数。默认值为 `&emptyCallback{}`。
+-   `WithInitialize`：设置初始化池时的最小对象数。默认值为 `0`。
+-   `WithPingMaxRetries`：设置对象验证失败的最大次数，超过该次数将销毁对象。默认值为 `3`。
+-   `WithNewFunc`：设置对象创建函数。默认值为 `DefaultNewFunc`。
+-   `WithPingFunc`：设置对象验证函数。默认值为 `DefaultPingFunc`。
+-   `WithCloseFunc`：设置对象销毁函数。默认值为 `DefaultCloseFunc`。
+-   `WithScanInterval`：设置两次扫描之间的间隔时间。默认值为 `10000ms`。
 
-> [!NOTE]
-> The **Conecta** utilizes a goroutine to periodically scan the elements in the pool. The scan interval can be customized using the `WithScanInterval` method. This scan process helps identify and block objects that have been idle for a long time, especially when the pool contains a large number of objects.
+> [!NOTE] > **Conecta** 使用一个 goroutine 定期扫描池中的元素。可以使用 `WithScanInterval` 方法自定义扫描间隔时间。此扫描过程有助于识别和阻塞长时间处于空闲状态的对象，特别是当池中包含大量对象时。
 >
-> For optimal performance in long-running programs, it is recommended to set the scan interval to a reasonable value, such as more than **10 seconds**.
+> 对于长时间运行的程序，为了获得最佳性能，建议将扫描间隔设置为合理的值，例如超过 **10 秒**。
 
-## Methods
+## 方法
 
--   `New`: Creates a `Conecta` object.
--   `Get`: Retrieves an object from the pool.
--   `GetOrCreate`: Retrieves an object from the pool, and if the pool is empty, creates a new object.
--   `Put`: Puts an object back into the pool.
--   `Stop`: Closes the pool.
+-   `New`：创建一个 `Conecta` 对象。
+-   `Get`：从池中获取一个对象。
+-   `GetOrCreate`：从池中获取一个对象，如果池为空，则创建一个新对象。
+-   `Put`：将一个对象放回池中。
+-   `Stop`：关闭池。
 
-## Create
+## 创建
 
-The `New` function of `Conecta` is used to create a `Conecta` object. It takes a `Config` object and a `QueueInterface` interface as parameters.
+`Conecta` 的 `New` 函数用于创建一个 `Conecta` 对象。它接受一个 `Config` 对象和一个 `QueueInterface` 接口作为参数。
 
-The `QueueInterface` interface defines the queue used to store the objects.
+`QueueInterface` 接口定义了用于存储对象的队列。
 
-Here is the `QueueInterface` interface:
+以下是 `QueueInterface` 接口的定义：
 
 ```go
 // QueueInterface 是一个接口，定义了队列的基本操作，如添加元素、获取长度、遍历元素、获取元素、标记元素处理完成、关闭队列和判断队列是否已关闭
@@ -106,17 +105,17 @@ type QueueInterface = interface {
 }
 ```
 
-## Callback
+## 回调函数
 
-The `Callback` interface is used to define the callback functions for `Conecta`. It includes the following methods:
+`Callback` 接口用于定义 `Conecta` 的回调函数。它包括以下方法：
 
--   `OnPingSuccess`: Called when the object validation is successful.
--   `OnPingFailure`: Called when the object validation fails.
--   `OnClose`: Called when the object is destroyed.
+-   `OnPingSuccess`：当对象验证成功时调用。
+-   `OnPingFailure`：当对象验证失败时调用。
+-   `OnClose`：当对象销毁时调用。
 
-## Example
+## 示例
 
-Following is a simple example.
+以下是一个简单的示例。
 
 ```go
 package main
@@ -580,7 +579,7 @@ func main() {
 }
 ```
 
-**Result**
+**执行结果**
 
 ```bash
 $ go run demo.go
