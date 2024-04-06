@@ -131,6 +131,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/shengyanli1982/conecta"
 	"github.com/shengyanli1982/workqueue"
 )
@@ -141,14 +142,26 @@ type Demo struct {
 	// value 是一个字符串
 	// value is a string
 	value string
+
+	// id 是一个字符串
+	// id is a string
+	id string
 }
 
-// Get 是一个方法，它返回 Demo 结构体中的 value 字段
-// Get is a method that returns the value field in the Demo struct
-func (d *Demo) Get() string {
+// GetValue 是一个方法，它返回 Demo 结构体中的 value 字段
+// GetValue is a method that returns the value field in the Demo struct
+func (d *Demo) GetValue() string {
 	// 返回 value 字段
 	// Return the value field
 	return d.value
+}
+
+// GetID 是一个方法，它返回 Demo 结构体中的 id 字段
+// GetID is a method that returns the id field in the Demo struct
+func (d *Demo) GetID() string {
+	// 返回 id 字段
+	// Return the id field
+	return d.id
 }
 
 // NewFunc 是一个函数，它创建并返回一个新的 Demo 结构体
@@ -156,7 +169,7 @@ func (d *Demo) Get() string {
 func NewFunc() (any, error) {
 	// 创建一个新的 Demo 结构体，其 value 字段被设置为 "test"
 	// Create a new Demo struct with its value field set to "test"
-	return &Demo{value: "test"}, nil
+	return &Demo{value: "test", id: uuid.NewString()}, nil
 }
 
 func main() {
@@ -196,11 +209,12 @@ func main() {
 			// 如果从池中获取数据时出错，打印错误并返回
 			// If an error occurs while getting data from the pool, print the error and return
 			fmt.Println("!! [main] get data error:", err)
+			return
 
 		} else {
 			// 打印从池中获取的数据
 			// Print the data obtained from the pool
-			fmt.Println(">> [main] get data:", fmt.Sprintf("%s_%v", data.(*Demo).Get(), i))
+			fmt.Printf(">> [main] get data: %s, id: %s\n", fmt.Sprintf("%s_%v", data.(*Demo).GetValue(), i), data.(*Demo).GetID())
 
 			// 使用 Put 方法将数据放回池中
 			// Use the Put method to put the data back into the pool
@@ -208,6 +222,7 @@ func main() {
 				// 如果将数据放回池中时出错，打印错误并返回
 				// If an error occurs while putting the data back into the pool, print the error and return
 				fmt.Println("!! [main] put data error:", err)
+				return
 			}
 		}
 	}
@@ -218,16 +233,16 @@ func main() {
 
 ```bash
 $ go run demo.go 
->> [main] get data: test_0
->> [main] get data: test_1
->> [main] get data: test_2
->> [main] get data: test_3
->> [main] get data: test_4
->> [main] get data: test_5
->> [main] get data: test_6
->> [main] get data: test_7
->> [main] get data: test_8
->> [main] get data: test_9
+>> [main] get data: test_0, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_1, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_2, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_3, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_4, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_5, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_6, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_7, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_8, id: 7b781fde-b392-470a-9c12-2e495429c1a0
+>> [main] get data: test_9, id: 7b781fde-b392-470a-9c12-2e495429c1a0
 ```
 
 ### 5.2. 完整示例
