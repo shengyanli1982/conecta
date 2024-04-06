@@ -43,7 +43,7 @@ To quickly get started with `Conecta`, follow these steps:
 1. Implement the `NewFunc`, `CloseFunc`, and `PingFunc` functions.
 2. Call the `New` function to create a `Conecta` object.
 
-## Config
+## 1. Config
 
 `Conecta` provides a config object that allows you to customize its behavior. You can use the following methods to configure the config object:
 
@@ -60,7 +60,7 @@ To quickly get started with `Conecta`, follow these steps:
 >
 > For optimal performance in long-running programs, it is recommended to set the scan interval to a reasonable value, such as more than **10 seconds**.
 
-## Methods
+## 2. Methods
 
 -   `New`: Creates a `Conecta` object.
 -   `Get`: Retrieves an object from the pool.
@@ -68,7 +68,7 @@ To quickly get started with `Conecta`, follow these steps:
 -   `Put`: Puts an object back into the pool.
 -   `Stop`: Closes the pool.
 
-## Create
+## 3. Create
 
 The `New` function of `Conecta` is used to create a `Conecta` object. It takes a `Config` object and a `QueueInterface` interface as parameters.
 
@@ -110,7 +110,7 @@ type QueueInterface = interface {
 }
 ```
 
-## Callback
+## 4. Callback
 
 The `Callback` interface is used to define the callback functions for `Conecta`. It includes the following methods:
 
@@ -118,11 +118,11 @@ The `Callback` interface is used to define the callback functions for `Conecta`.
 -   `OnPingFailure`: Called when the object validation fails.
 -   `OnClose`: Called when the object is destroyed.
 
-## Example
+## 5. Example
 
 You can find the code for each case in the `examples` directory.
 
-### Simple Example
+### 5.1. Simple Example
 
 Here is a simple example that demonstrates how to use `Conecta`:
 
@@ -231,7 +231,7 @@ $ go run demo.go
 >> [main] get data: test_9
 ```
 
-### Full Example
+### 5.2. Full Example
 
 Here is a complete example that demonstrates how to use `Conecta`:
 

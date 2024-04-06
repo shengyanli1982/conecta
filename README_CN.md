@@ -43,7 +43,7 @@ go get github.com/shengyanli1982/conecta
 1. 实现 `NewFunc`、`CloseFunc` 和 `PingFunc` 函数。
 2. 调用 `New` 函数创建一个 `Conecta` 对象。
 
-## 配置
+## 1. 配置
 
 `Conecta` 提供了一个配置对象，允许您自定义其行为。您可以使用以下方法来配置配置对象：
 
@@ -59,7 +59,7 @@ go get github.com/shengyanli1982/conecta
 >
 > 对于长时间运行的程序，为了获得最佳性能，建议将扫描间隔设置为合理的值，例如超过 **10 秒**。
 
-## 方法
+## 2. 方法
 
 -   `New`：创建一个 `Conecta` 对象。
 -   `Get`：从池中获取一个对象。
@@ -67,7 +67,7 @@ go get github.com/shengyanli1982/conecta
 -   `Put`：将一个对象放回池中。
 -   `Stop`：关闭池。
 
-## 创建
+## 3. 创建
 
 `Conecta` 的 `New` 函数用于创建一个 `Conecta` 对象。它接受一个 `Config` 对象和一个 `QueueInterface` 接口作为参数。
 
@@ -109,7 +109,7 @@ type QueueInterface = interface {
 }
 ```
 
-## 回调函数
+## 4. 回调函数
 
 `Callback` 接口用于定义 `Conecta` 的回调函数。它包括以下方法：
 
@@ -117,11 +117,11 @@ type QueueInterface = interface {
 -   `OnPingFailure`：当对象验证失败时调用。
 -   `OnClose`：当对象销毁时调用。
 
-## 示例
+## 5. 示例
 
 您可以在 `examples` 目录中找到每个示例的代码。
 
-### 简单示例
+### 5.1. 简单示例
 
 以下是一个简单示例，演示如何使用 `Conecta`：
 
@@ -230,7 +230,7 @@ $ go run demo.go
 >> [main] get data: test_9
 ```
 
-### 完整示例
+### 5.2. 完整示例
 
 以下是一个完整的示例，演示如何使用 `Conecta`：
 
