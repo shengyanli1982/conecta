@@ -74,6 +74,10 @@ The `New` function of `Conecta` is used to create a `Conecta` object. It takes a
 
 The `QueueInterface` interface defines the queue used to store the objects.
 
+> [!IMPORTANT]
+>
+> When using the `workqueue` module, it is recommended to use the `workqueue.NewSimpleQueue` function to create a queue. Other queues may have deduplication, which can lead to unexpected results.
+
 Here is the `QueueInterface` interface:
 
 ```go
