@@ -73,6 +73,10 @@ go get github.com/shengyanli1982/conecta
 
 `QueueInterface` 接口定义了用于存储对象的队列。
 
+> [!IMPORTANT]
+>
+> 当使用 `workqueue` 模块时，建议使用 `workqueue.NewSimpleQueue` 函数创建队列。其他队列可能具有去重功能，这可能导致意外的结果。
+
 以下是 `QueueInterface` 接口的定义：
 
 ```go
@@ -232,7 +236,7 @@ func main() {
 **执行结果**
 
 ```bash
-$ go run demo.go 
+$ go run demo.go
 >> [main] get data: test_0, id: 7b781fde-b392-470a-9c12-2e495429c1a0
 >> [main] get data: test_1, id: 7b781fde-b392-470a-9c12-2e495429c1a0
 >> [main] get data: test_2, id: 7b781fde-b392-470a-9c12-2e495429c1a0
