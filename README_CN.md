@@ -55,7 +55,9 @@ go get github.com/shengyanli1982/conecta
 -   `WithCloseFunc`：设置对象销毁函数。默认值为 `DefaultCloseFunc`。
 -   `WithScanInterval`：设置两次扫描之间的间隔时间。默认值为 `10000ms`。
 
-> [!NOTE] > **Conecta** 使用一个 goroutine 定期扫描池中的元素。可以使用 `WithScanInterval` 方法自定义扫描间隔时间。此扫描过程有助于识别和阻塞长时间处于空闲状态的对象，特别是当池中包含大量对象时。
+> [!NOTE]
+>
+> 而 **Conecta** 会使用一个 goroutine 定期扫描池中的元素。可以使用 `WithScanInterval` 方法自定义扫描间隔时间。此扫描过程有助于识别和阻塞长时间处于空闲状态的对象，特别是当池中包含大量对象时。
 >
 > 对于长时间运行的程序，为了获得最佳性能，建议将扫描间隔设置为合理的值，例如超过 **10 秒**。
 
