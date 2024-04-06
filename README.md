@@ -4,6 +4,10 @@ English | [中文](./README_CN.md)
 	<img src="assets/logo.png" alt="logo" width="500px">
 </div>
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/conecta)](https://goreportcard.com/report/github.com/shengyanli1982/conecta)
+[![Build Status](https://github.com/shengyanli1982/conecta/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/conecta/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/conecta.svg)](https://pkg.go.dev/github.com/shengyanli1982/conecta)
+
 # Introduction
 
 **Conecta** is a lightweight module for managing connection/session pools in Go.
@@ -116,7 +120,126 @@ The `Callback` interface is used to define the callback functions for `Conecta`.
 
 ## Example
 
-Following is a simple example.
+You can find the code for each case in the `examples` directory.
+
+### Simple Example
+
+Here is a simple example that demonstrates how to use `Conecta`:
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/shengyanli1982/conecta"
+	"github.com/shengyanli1982/workqueue"
+)
+
+// Demo 是一个包含 value 字段的结构体
+// Demo is a struct that contains a value field
+type Demo struct {
+	// value 是一个字符串
+	// value is a string
+	value string
+}
+
+// Get 是一个方法，它返回 Demo 结构体中的 value 字段
+// Get is a method that returns the value field in the Demo struct
+func (d *Demo) Get() string {
+	// 返回 value 字段
+	// Return the value field
+	return d.value
+}
+
+// NewFunc 是一个函数，它创建并返回一个新的 Demo 结构体
+// NewFunc is a function that creates and returns a new Demo struct
+func NewFunc() (any, error) {
+	// 创建一个新的 Demo 结构体，其 value 字段被设置为 "test"
+	// Create a new Demo struct with its value field set to "test"
+	return &Demo{value: "test"}, nil
+}
+
+func main() {
+	// 创建一个工作队列
+	// Create a work queue.
+	baseQ := workqueue.NewSimpleQueue(nil)
+
+	// 创建一个 Conecta 池
+	// Create a Conecta pool.
+	conf := conecta.NewConfig().
+		// 使用 NewFunc 函数作为新建连接的函数
+		// Use the NewFunc function as the function to create a new connection.
+		WithNewFunc(NewFunc)
+
+	// 使用 conecta.New 函数创建一个新的连接池
+	// Use the conecta.New function to create a new connection pool.
+	pool, err := conecta.New(baseQ, conf)
+
+	// 检查是否在创建连接池时出现错误
+	// Check if there was an error while creating the connection pool.
+	if err != nil {
+		// 如果创建连接池时出错，打印错误并返回
+		// If an error occurs while creating the connection pool, print the error and return.
+		fmt.Println("!! [main] create pool error:", err)
+		return
+	}
+	// 使用 defer 关键字确保在函数结束时停止池
+	// Use the defer keyword to ensure that the pool is stopped when the function ends
+	defer pool.Stop()
+
+	// 使用 for 循环从池中获取数据
+	// Use a for loop to get data from the pool
+	for i := 0; i < 10; i++ {
+		// 使用 GetOrCreate 方法从池中获取数据
+		// Use the GetOrCreate method to get data from the pool
+		if data, err := pool.GetOrCreate(); err != nil {
+			// 如果从池中获取数据时出错，打印错误并返回
+			// If an error occurs while getting data from the pool, print the error and return
+			fmt.Println("!! [main] get data error:", err)
+
+		} else {
+			// 打印从池中获取的数据
+			// Print the data obtained from the pool
+			fmt.Println(">> [main] get data:", fmt.Sprintf("%s_%v", data.(*Demo).Get(), i))
+
+			// 使用 Put 方法将数据放回池中
+			// Use the Put method to put the data back into the pool
+			if err := pool.Put(data); err != nil {
+				// 如果将数据放回池中时出错，打印错误并返回
+				// If an error occurs while putting the data back into the pool, print the error and return
+				fmt.Println("!! [main] put data error:", err)
+			}
+		}
+	}
+}
+```
+
+**Result**
+
+```bash
+$ go run demo.go
+>> [main] get data: test_0
+>> [main] get data: test_1
+>> [main] get data: test_2
+>> [main] get data: test_3
+>> [main] get data: test_4
+>> [main] get data: test_5
+>> [main] get data: test_6
+>> [main] get data: test_7
+>> [main] get data: test_8
+>> [main] get data: test_9
+```
+
+### Full Example
+
+Here is a complete example that demonstrates how to use `Conecta`:
+
+1. Create a TCP server and client.
+2. Use `Conecta` to manage the TCP sessions between the server and client.
+3. Implement the `NewFunc`, `CloseFunc`, and `PingFunc` functions.
+4. Set `PingMaxRetries` to `1` to simulate a failed ping operation.
+5. Utilize the `Callback` interface to handle the callback functions.
 
 ```go
 package main
@@ -172,23 +295,44 @@ type TCPServer struct {
 // NewTCPServer 创建一个新的 TCP 服务器
 // NewTCPServer creates a new TCP server
 func NewTCPServer(port int) (*TCPServer, error) {
-	// 创建一个 TCP 监听器
-	// Create a TCP listener
+	// 使用 net.ListenTCP 创建一个新的 TCP 监听器
+	// Use net.ListenTCP to create a new TCP listener
 	listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-		IP:   net.ParseIP(listenAddr),
+		// 解析监听地址
+		// Parse the listen address
+		IP: net.ParseIP(listenAddr),
+
+		// 设置服务器端口
+		// Set the server port
 		Port: serverPort,
 	})
+
+	// 检查是否在创建监听器时出现错误
+	// Check if there was an error while creating the listener
 	if err != nil {
+		// 如果创建监听器时出错，返回错误
+		// If an error occurs while creating the listener, return the error
 		return nil, err
 	}
 
 	// 创建一个 TCP 服务器
 	// Create a TCP server
 	server := TCPServer{
+		// 设置监听器
+		// Set the listener
 		listener: listener,
-		clients:  make([]*net.TCPConn, 0),
-		wg:       sync.WaitGroup{},
-		once:     sync.Once{},
+
+		// 初始化客户端连接列表
+		// Initialize the client connection list
+		clients: make([]*net.TCPConn, 0),
+
+		// 初始化等待组
+		// Initialize the wait group
+		wg: sync.WaitGroup{},
+
+		// 初始化 once
+		// Initialize once
+		once: sync.Once{},
 	}
 
 	// 返回创建的 TCP 服务器
@@ -208,122 +352,146 @@ func (s *TCPServer) Start() {
 	go s.listen()
 }
 
-// Stop 停止 TCP 服务器
-// Stop stops the TCP server
+// Stop 方法用于停止 TCP 服务器
+// The Stop method is used to stop the TCP server.
 func (s *TCPServer) Stop() {
-	// 确保停止操作只执行一次
-	// Ensure that the stop operation is only performed once
+	// 使用 sync.Once 来确保停止操作只执行一次
+	// Use sync.Once to ensure that the stop operation is only performed once.
 	s.once.Do(func() {
+		// 打印停止服务器的消息
+		// Print the message of stopping the server.
 		fmt.Println(">>> [TCPServer] stop")
 
-		// 关闭所有客户端连接
-		// Close all client connections
+		// 使用 for 循环来关闭所有客户端连接
+		// Use a for loop to close all client connections.
 		for _, c := range s.clients {
+			// 使用 Close 方法来关闭连接
+			// Use the Close method to close the connection.
 			_ = c.Close()
 		}
 
+		// 打印关闭监听器的消息
+		// Print the message of closing the listener.
 		fmt.Println(">>> [TCPServer] close listener")
 
-		// 关闭监听器
-		// Close the listener
+		// 使用 Close 方法来关闭监听器
+		// Use the Close method to close the listener.
 		_ = s.listener.Close()
 
+		// 打印关闭所有客户端的消息
+		// Print the message of closing all clients.
 		fmt.Println(">>> [TCPServer] close all clients")
 
-		// 等待所有 goroutine 结束
-		// Wait for all goroutines to end
+		// 使用 Wait 方法来等待所有 goroutine 结束
+		// Use the Wait method to wait for all goroutines to end.
 		s.wg.Wait()
 	})
 }
 
 // listen 方法用于监听传入的连接
-// The listen method is used to listen for incoming connections
+// The listen method is used to listen for incoming connections.
 func (s *TCPServer) listen() {
 	// 使用 defer 语句来确保在函数结束时调用 Done 方法
-	// Use the defer statement to ensure that the Done method is called when the function ends
+	// Use the defer statement to ensure that the Done method is called when the function ends.
 	defer s.wg.Done()
 
 	// 使用 for 循环来不断接受新的连接
-	// Use a for loop to continuously accept new connections
+	// Use a for loop to continuously accept new connections.
 	for {
 		// 使用 AcceptTCP 方法来接受新的 TCP 连接
-		// Use the AcceptTCP method to accept a new TCP connection
+		// Use the AcceptTCP method to accept a new TCP connection.
 		conn, err := s.listener.AcceptTCP()
+
+		// 检查是否在接受新连接时出现错误
+		// Check if there was an error while accepting the new connection.
 		if err != nil {
-			// 如果出现错误，检查是否是因为监听器已经关闭
-			// If an error occurs, check if it is because the listener has been closed
+			// 如果接受新连接时出错，检查是否是 EOF 错误或网络关闭错误
+			// If an error occurs while accepting the new connection, check if it is an EOF error or a network closed error.
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				// 如果是 EOF 错误或网络关闭错误，打印 EOF 信息并跳出循环
+				// If it is an EOF error or a network closed error, print EOF information and break the loop.
 				fmt.Println(">>> [TCPServer] EOF")
 				break
 			} else {
-				// 如果不是因为监听器已经关闭，打印错误信息并继续监听
-				// If it is not because the listener has been closed, print the error message and continue listening
+				// 如果是其他错误，打印错误并继续循环
+				// If it is another error, print the error and continue the loop.
 				fmt.Println(">>> [TCPServer] accept error:", err)
 				continue
 			}
 		}
+
 		// 如果成功接受了一个新的连接，增加等待组的计数
-		// If a new connection is successfully accepted, increase the count of the wait group
+		// If a new connection is successfully accepted, increase the count of the wait group.
 		s.wg.Add(1)
 
 		// 启动一个新的 goroutine 来处理这个连接
-		// Start a new goroutine to handle this connection
+		// Start a new goroutine to handle this connection.
 		go s.handle(conn)
 
 		// 将这个新的连接添加到客户端连接列表中
-		// Add this new connection to the client connection list
+		// Add this new connection to the client connection list.
 		s.clients = append(s.clients, conn)
 
 		// 打印新客户端的地址
-		// Print the address of the new client
+		// Print the address of the new client.
 		fmt.Println(">>> [TCPServer] new client:", conn.RemoteAddr().String())
 	}
 }
 
 // handle 方法用于处理客户端连接
-// The handle method is used to handle client connections
+// The handle method is used to handle client connections.
 func (s *TCPServer) handle(conn *net.TCPConn) {
 	// 使用 defer 语句来确保在函数结束时调用 Done 方法
-	// Use the defer statement to ensure that the Done method is called when the function ends
+	// Use the defer statement to ensure that the Done method is called when the function ends.
 	defer s.wg.Done()
 
 	// 使用 for 循环来不断读取客户端发送的数据
-	// Use a for loop to continuously read data sent by the client
+	// Use a for loop to continuously read data sent by the client.
 	for {
 		// 创建一个缓冲区来存储读取的数据
-		// Create a buffer to store the read data
+		// Create a buffer to store the read data.
 		buf := make([]byte, 1024)
 
 		// 使用 Read 方法来读取数据
-		// Use the Read method to read data
+		// Use the Read method to read data.
 		_, err := conn.Read(buf)
+
+		// 检查是否在读取数据时出现错误
+		// Check if there was an error while reading the data.
 		if err != nil {
-			// 如果出现错误，检查是否是因为连接已经关闭
-			// If an error occurs, check if it is because the connection has been closed
+			// 如果读取数据时出错，检查是否是 EOF 错误
+			// If an error occurs while reading the data, check if it is an EOF error.
 			if !errors.Is(err, io.EOF) {
+				// 如果不是 EOF 错误，打印错误并跳出循环
+				// If it is not an EOF error, print the error and break the loop.
 				fmt.Println(">>> [TCPServer] read error:", err)
 			} else {
+				// 如果是 EOF 错误，打印 EOF 信息并跳出循环
+				// If it is an EOF error, print EOF information and break the loop.
 				fmt.Println(">>> [TCPServer] EOF")
 			}
 			break
 		}
 
 		// 打印读取到的数据
-		// Print the read data
+		// Print the read data.
 		fmt.Println(">>> [TCPServer] <- read:", string(buf))
 
 		// 使用 Write 方法来发送数据
-		// Use the Write method to send data
+		// Use the Write method to send data.
 		_, err = conn.Write(buf)
+
+		// 检查是否在发送数据时出现错误
+		// Check if there was an error while sending the data.
 		if err != nil {
-			// 如果出现错误，打印错误信息并结束处理
-			// If an error occurs, print the error message and end the processing
+			// 如果发送数据时出错，打印错误并跳出循环
+			// If an error occurs while sending the data, print the error and break the loop.
 			fmt.Println(">>> [TCPServer] write error:", err)
 			break
 		}
 
 		// 打印发送的数据
-		// Print the sent data
+		// Print the sent data.
 		fmt.Println(">>> [TCPServer] -> write:", string(buf))
 	}
 }
@@ -345,23 +513,36 @@ type TCPClient struct {
 // NewTCPClient 创建一个新的 TCP 客户端
 // NewTCPClient creates a new TCP client.
 func NewTCPClient(addr string, port int) (*TCPClient, error) {
-	// 创建一个 TCP 连接
-	// Create a TCP connection
+	// 使用 net.DialTCP 方法创建一个 TCP 连接
+	// Use the net.DialTCP method to create a TCP connection
 	conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.ParseIP(addr),
+		// 解析 IP 地址
+		// Parse the IP address
+		IP: net.ParseIP(addr),
+
+		// 设置端口号
+		// Set the port number
 		Port: port,
 	})
+
+	// 检查是否在创建 TCP 连接时出现错误
+	// Check if there was an error while creating the TCP connection
 	if err != nil {
-		// 如果出现错误，打印错误信息并返回
-		// If an error occurs, print the error message and return
+		// 如果创建 TCP 连接时出错，打印错误并返回 nil 和错误
+		// If an error occurs while creating the TCP connection, print the error and return nil and the error
 		fmt.Println("*** [TCPClient] create client error:", err)
 		return nil, err
 	}
 
-	// 返回创建的 TCP 客户端
-	// Return the created TCP client
+	// 创建一个新的 TCP 客户端并返回
+	// Create a new TCP client and return
 	return &TCPClient{
+		// 设置 TCP 连接
+		// Set the TCP connection
 		conn: conn,
+
+		// 初始化 sync.Once 结构体
+		// Initialize the sync.Once struct
 		once: sync.Once{},
 	}, nil
 }
@@ -372,12 +553,16 @@ func (c *TCPClient) Send(msg []byte) bool {
 	// 使用 Write 方法发送消息
 	// Use the Write method to send the message
 	_, err := c.conn.Write(msg)
+
+	// 检查是否在发送消息时出现错误
+	// Check if there was an error while sending the message
 	if err != nil {
-		// 如果出现错误，打印错误信息并返回 false
-		// If an error occurs, print the error message and return false
+		// 如果发送消息时出错，打印错误并返回 false
+		// If an error occurs while sending the message, print the error and return false
 		fmt.Println("*** [TCPClient] write error:", err)
 		return false
 	}
+
 	// 打印发送的消息
 	// Print the sent message
 	fmt.Println("*** [TCPClient] -> write:", string(msg))
@@ -389,18 +574,25 @@ func (c *TCPClient) Send(msg []byte) bool {
 	// 使用 Read 方法读取服务器的响应
 	// Use the Read method to read the server's response
 	_, err = c.conn.Read(buf)
+
+	// 检查是否在读取响应时出现错误
+	// Check if there was an error while reading the response
 	if err != nil {
-		// 如果出现错误，打印错误信息并返回 false
-		// If an error occurs, print the error message and return false
+		// 如果读取响应时出错，检查是否是 EOF 错误
+		// If an error occurs while reading the response, check if it is an EOF error
 		if err != io.EOF {
+			// 如果不是 EOF 错误，打印错误并返回 false
+			// If it is not an EOF error, print the error and return false
 			fmt.Println("*** [TCPClient] read error:", err)
 		} else {
-			// 如果是 EOF 错误，打印 EOF 信息
-			// If it is an EOF error, print EOF information
+			// 如果是 EOF 错误，打印 EOF 信息并返回 false
+			// If it is an EOF error, print EOF information and return false
 			fmt.Println("*** [TCPClient] EOF")
 		}
+
 		return false
 	}
+
 	// 打印读取到的响应
 	// Print the read response
 	fmt.Println("*** [TCPClient] <- read:", string(buf))
@@ -478,6 +670,9 @@ func PingFunc(any any, c int) bool {
 	// 获取 TCP 客户端并执行 ping 操作
 	// Get the TCP client and perform the ping operation
 	client := any.(*TCPClient)
+
+	// 返回 ping 操作的结果
+	// Return the result of the ping operation
 	return client.Ping()
 }
 
@@ -487,7 +682,11 @@ func CloseFunc(any any) error {
 	// 获取 TCP 客户端并关闭连接
 	// Get the TCP client and close the connection
 	client := any.(*TCPClient)
+
+	// 执行关闭操作
+	// Perform the close operation
 	client.Close()
+
 	// 返回 nil 表示没有错误
 	// Return nil to indicate no error
 	return nil
@@ -506,14 +705,45 @@ func main() {
 
 	// 创建一个 Conecta 池
 	// Create a Conecta pool.
-	conf := conecta.NewConfig().WithNewFunc(NewFunc).WithPingFunc(PingFunc).WithCloseFunc(CloseFunc).WithPingMaxRetries(1).WithScanInterval(scanInterval).WithCallback(&TestCallback{})
+	conf := conecta.NewConfig().
+
+		// 设置新建连接的函数
+		// Set the function to create a new connection.
+		WithNewFunc(NewFunc).
+
+		// 设置检查连接的函数
+		// Set the function to check the connection.
+		WithPingFunc(PingFunc).
+
+		// 设置关闭连接的函数
+		// Set the function to close the connection.
+		WithCloseFunc(CloseFunc).
+
+		// 设置检查连接的最大重试次数
+		// Set the maximum number of retries to check the connection.
+		WithPingMaxRetries(1).
+
+		// 设置扫描间隔
+		// Set the scan interval.
+		WithScanInterval(scanInterval).
+
+		// 设置回调函数
+		// Set the callback function.
+		WithCallback(&TestCallback{})
+
+	// 使用基础队列和配置创建新的 Conecta 池
+	// Create a new Conecta pool using the base queue and configuration
 	pool, err := conecta.New(baseQ, conf)
+
+	// 检查是否在创建池时出现错误
+	// Check if there was an error while creating the pool
 	if err != nil {
 		// 如果创建池时出错，打印错误并返回
 		// If an error occurs while creating the pool, print the error and return
 		fmt.Println("!! [main] create pool error:", err)
 		return
 	}
+
 	// 使用 defer 关键字确保在函数结束时停止池
 	// Use the defer keyword to ensure that the pool is stopped when the function ends
 	defer pool.Stop()
@@ -521,6 +751,9 @@ func main() {
 	// 创建一个 TCP 服务器
 	// Create a TCP server.
 	server, err := NewTCPServer(serverPort)
+
+	// 检查是否在创建服务器时出现错误
+	// Check if there was an error while creating the server
 	if err != nil {
 		// 如果创建服务器时出错，打印错误并返回
 		// If an error occurs while creating the server, print the error and return
@@ -530,18 +763,23 @@ func main() {
 	// 使用 defer 关键字确保在函数结束时停止服务器
 	// Use the defer keyword to ensure that the server is stopped when the function ends
 	defer server.Stop()
+
+	// 启动 TCP 服务器
+	// Start the TCP server.
 	server.Start()
 
 	// 从池中获取一个 TCP 客户端
 	// Get a TCP client from the pool.
 	client, err := pool.GetOrCreate()
+
+	// 检查是否在获取客户端时出现错误
+	// Check if there was an error while getting the client
 	if err != nil {
 		// 如果获取客户端时出错，打印错误并返回
 		// If an error occurs while getting the client, print the error and return
 		fmt.Println("!! [main] get client error:", err)
 		return
 	}
-
 	// 向服务器发送一条消息
 	// Send a message to the server.
 	_ = client.(*TCPClient).Send([]byte("msg1"))
@@ -550,7 +788,12 @@ func main() {
 	// Put the TCP client back to the pool.
 	_ = pool.Put(client)
 
+	// 打印一条消息，让用户等待客户端消息处理和一次扫描执行（需要 6 秒）
+	// Print a message asking the user to wait for the client message to be processed and a scan to be executed (takes 6 seconds)
 	fmt.Println("!! [main] please wait for the client msg processed and once scan to be executed... (6 seconds)")
+
+	// 使程序暂停 6 秒，等待客户端消息处理和扫描完成
+	// Pause the program for 6 seconds to wait for the client message processing and scan to complete
 	time.Sleep(6 * time.Second)
 
 	// 停止 TCP 服务器。当 TCP 客户端将被关闭时，TCP 客户端将从池中移除
@@ -560,6 +803,9 @@ func main() {
 	// 从池中获取一个 TCP 客户端
 	// Get a TCP client from the pool.
 	client, err = pool.GetOrCreate()
+
+	// 检查是否在获取客户端时出现错误
+	// Check if there was an error while getting the client
 	if err != nil {
 		// 如果获取客户端时出错，打印错误并返回
 		// If an error occurs while getting the client, print the error and return
@@ -575,7 +821,12 @@ func main() {
 	// Put the TCP client back to the pool.
 	_ = pool.Put(client)
 
+	// 打印一条消息，让用户等待扫描执行（需要 11 秒）
+	// Print a message asking the user to wait for the scan to be executed (takes 11 seconds)
 	fmt.Println("!! [main] please wait for the scan to be executed... (11 seconds)")
+
+	// 使程序暂停 11 秒，等待扫描完成
+	// Pause the program for 11 seconds to wait for the scan to complete
 	time.Sleep(11 * time.Second)
 }
 ```
