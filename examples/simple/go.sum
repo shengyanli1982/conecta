@@ -1,4 +1,6 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/shengyanli1982/workqueue v0.1.12 h1:tznaW8J6TTm6fQRgeY+OP5Fm5he6UBEATPNcp3Y0V6A=
 github.com/shengyanli1982/workqueue v0.1.12/go.mod h1:gjVX17LBs2kKZ9r8pVRXPBgXk7Ysmf+Em86ErdygA88=
