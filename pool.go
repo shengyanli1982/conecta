@@ -113,6 +113,10 @@ func (p *Pool) Stop() {
 		// Use WaitGroup to wait for all goroutines to complete
 		p.wg.Wait()
 
+		// 调用 Reset 方法重置连接池，释放所有的连接
+		// Call the Reset method to reset the connection pool and release all connections
+		p.Reset()
+
 		// 调用队列的 Stop 方法来关闭队列
 		// Call the Stop method of the queue to close the queue
 		p.queue.Stop()
