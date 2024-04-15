@@ -158,6 +158,20 @@ func TestPool_Callback(t *testing.T) {
 
 func TestPool_Initialize(t *testing.T) {
 	queue := workqueue.NewSimpleQueue(nil)
+	conf := conecta.NewConfig().WithInitialize(2)
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	assert.NotNil(t, p)
+	assert.Nil(t, err)
+
+	defer p.Stop()
+
+	assert.Equal(t, 2, p.Len())
+}
+
+func TestPool_InitializeWithNewFunc(t *testing.T) {
+	queue := workqueue.NewSimpleQueue(nil)
 	conf := conecta.NewConfig().WithInitialize(2).WithNewFunc(testNewFunc)
 	assert.NotNil(t, conf)
 
@@ -238,7 +252,7 @@ func TestPool_GetOrCreateWithParallel(t *testing.T) {
 	assert.Equal(t, 0, p.Len())
 }
 
-func TestPool_Reset(t *testing.T) {
+func TestPool_Cleanup(t *testing.T) {
 	queue := workqueue.NewSimpleQueue(nil)
 	conf := conecta.NewConfig().WithCloseFunc(testCallbackCloseFunc).WithCallback(&testCallback{t: t})
 	assert.NotNil(t, conf)
@@ -255,7 +269,7 @@ func TestPool_Reset(t *testing.T) {
 
 	assert.Equal(t, 3, p.Len())
 
-	p.Reset()
+	p.Cleanup()
 
 	assert.Equal(t, 0, p.Len())
 }
