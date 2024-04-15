@@ -164,31 +164,57 @@ func (c *Config) WithPingMaxRetries(maxRetries int) *Config {
 // isConfigValid 是验证配置是否有效的函数
 // isConfigValid is the function to validate whether the configuration is valid
 func isConfigValid(conf *Config) *Config {
+	// 如果配置不为空
+	// If the configuration is not null
 	if conf != nil {
+		// 如果初始化值小于0，设置为默认初始化值
+		// If the initialization value is less than 0, set it to the default initialization value
 		if conf.initialize < 0 {
 			conf.initialize = DefaultInitialize
 		}
+
+		// 如果最大重试次数小于等于0或大于等于最大无符号16位整数，设置为默认最大Ping重试次数
+		// If the maximum number of retries is less than or equal to 0 or greater than or equal to the maximum unsigned 16-bit integer, set it to the default maximum Ping retry count
 		if conf.maxRetries <= 0 || conf.maxRetries >= math.MaxUint16 {
 			conf.maxRetries = DefaultMaxPingRetry
 		}
+
+		// 如果扫描间隔小于等于初始化值乘以默认最小项间隔，设置为默认扫描间隔
+		// If the scan interval is less than or equal to the initialization value times the default minimum item interval, set it to the default scan interval
 		if conf.scanInterval <= conf.initialize*DefautMiniItemsInterval {
 			conf.scanInterval = DefaultScanInterval
 		}
+
+		// 如果新建函数为空，设置为默认新建函数
+		// If the new function is null, set it to the default new function
 		if conf.newFunc == nil {
 			conf.newFunc = DefaultNewFunc
 		}
+
+		// 如果Ping函数为空，设置为默认Ping函数
+		// If the Ping function is null, set it to the default Ping function
 		if conf.pingFunc == nil {
 			conf.pingFunc = DefaultPingFunc
 		}
+
+		// 如果关闭函数为空，设置为默认关闭函数
+		// If the close function is null, set it to the default close function
 		if conf.closeFunc == nil {
 			conf.closeFunc = DefaultCloseFunc
 		}
+
+		// 如果回调为空，设置为新的空回调
+		// If the callback is null, set it to a new empty callback
 		if conf.callback == nil {
 			conf.callback = newEmptyCallback()
 		}
 	} else {
+		// 如果配置为空，新建一个配置
+		// If the configuration is null, create a new configuration
 		conf = NewConfig()
 	}
 
+	// 返回配置
+	// Return the configuration
 	return conf
 }

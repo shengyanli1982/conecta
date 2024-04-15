@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	itl "github.com/shengyanli1982/conecta/internal"
+	itl "github.com/shengyanli1982/conecta/internal/pool"
 )
 
 // ErrorQueueClosed 表示队列已经关闭
@@ -57,18 +57,31 @@ func New(queue QueueInterface, conf *Config) (*Pool, error) {
 	if queue == nil {
 		return nil, ErrorQueueInterfaceIsNil
 	}
-
 	// 如果配置为空，则使用默认配置
 	// If the configuration is null, use the default configuration
 	conf = isConfigValid(conf)
 
-	// 创建连接池
-	// Create a connection pool
+	// 创建一个 Pool 对象，包含一个队列，配置，同步等待组，同步一次执行，和一个元素池
+	// Create a Pool object, including a queue, configuration, synchronous wait group, synchronous once execution, and an element pool
 	pool := Pool{
-		queue:       queue,
-		config:      conf,
-		wg:          sync.WaitGroup{},
-		once:        sync.Once{},
+		// 初始化一个队列
+		// Initialize a queue
+		queue: queue,
+
+		// 使用验证过的配置
+		// Use the validated configuration
+		config: conf,
+
+		// 初始化一个同步等待组
+		// Initialize a synchronous wait group
+		wg: sync.WaitGroup{},
+
+		// 初始化一个同步一次执行
+		// Initialize a synchronous once execution
+		once: sync.Once{},
+
+		// 创建一个新的元素池
+		// Create a new element pool
 		elementpool: itl.NewElementPool(),
 	}
 
@@ -79,7 +92,6 @@ func New(queue QueueInterface, conf *Config) (*Pool, error) {
 	// 初始化连接池
 	// Initialize the connection pool
 	err := pool.initialize()
-
 	// 如果初始化过程中出现错误，则返回 nil 和错误
 	// If an error occurs during initialization, return nil and the error
 	if err != nil {
