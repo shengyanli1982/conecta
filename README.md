@@ -67,6 +67,11 @@ To quickly get started with `Conecta`, follow these steps:
 -   `GetOrCreate`: Retrieves an object from the pool, and if the pool is empty, creates a new object.
 -   `Put`: Puts an object back into the pool.
 -   `Stop`: Closes the pool.
+-   `Cleanup`: Cleans up the pool, releasing all resources.
+
+> [!NOTE]
+>
+> If the pool is closed, the `Get`, `GetOrCreate`, and `Put` methods will return an error. Use `Stop` to close the pool, will clean the pool, and release all resources.
 
 ## 3. Create
 
