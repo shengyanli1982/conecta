@@ -22,7 +22,7 @@ var ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 type Pool struct {
 	// 队列接口，用于管理连接池中的连接
 	// QueueInterface is the interface for managing connections in the pool
-	queue QueueInterface
+	queue Queue
 
 	// 配置，包含了连接池的所有配置信息
 	// Config contains all the configuration information of the connection pool
@@ -51,7 +51,7 @@ type Pool struct {
 
 // New 创建一个新的连接池
 // New creates a new connection pool
-func New(queue QueueInterface, conf *Config) (*Pool, error) {
+func New(queue Queue, conf *Config) (*Pool, error) {
 	// 如果队列为空，则返回 nil 和错误
 	// If the queue is null, return nil and an error
 	if queue == nil {
@@ -131,7 +131,7 @@ func (p *Pool) Stop() {
 
 		// 调用队列的 Stop 方法来关闭队列
 		// Call the Stop method of the queue to close the queue
-		p.queue.Stop()
+		p.queue.Shutdown()
 	})
 }
 
@@ -181,7 +181,7 @@ func (p *Pool) initialize() error {
 
 		// 尝试将元素添加到队列中
 		// Try to add the element to the queue
-		err := p.queue.Add(element)
+		err := p.queue.Put(element)
 
 		// 如果添加失败
 		// If the addition fails
@@ -311,7 +311,7 @@ func (p *Pool) Put(data any) error {
 
 	// 将元素放入队列
 	// Put the element into the queue
-	return p.queue.Add(element)
+	return p.queue.Put(element)
 }
 
 // Get 方法从连接池中获取数据

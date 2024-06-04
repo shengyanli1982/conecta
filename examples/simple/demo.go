@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shengyanli1982/conecta"
-	"github.com/shengyanli1982/workqueue"
+	wkq "github.com/shengyanli1982/workqueue/v2"
 )
 
 // Demo 是一个包含 value 字段的结构体
@@ -47,7 +47,7 @@ func NewFunc() (any, error) {
 func main() {
 	// 创建一个工作队列
 	// Create a work queue.
-	baseQ := workqueue.NewSimpleQueue(nil)
+	baseQ := wkq.NewQueue(nil)
 
 	// 创建一个 Conecta 池
 	// Create a Conecta pool.
