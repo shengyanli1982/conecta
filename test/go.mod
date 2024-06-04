@@ -6,7 +6,7 @@ replace github.com/shengyanli1982/conecta => ../
 
 require (
 	github.com/shengyanli1982/conecta v0.0.0-20211013143910-5f9b8b8b2b0e
-	github.com/shengyanli1982/workqueue v0.1.12
+	github.com/shengyanli1982/workqueue/v2 v2.1.2
 	github.com/stretchr/testify v1.8.4
 )
 
