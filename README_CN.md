@@ -76,46 +76,52 @@ go get github.com/shengyanli1982/conecta
 
 ## 3. 创建
 
-`Conecta` 的 `New` 函数用于创建一个 `Conecta` 对象。它接受一个 `Config` 对象和一个 `QueueInterface` 接口作为参数。
+`Conecta` 的 `New` 函数用于创建一个 `Conecta` 对象。它接受一个 `Config` 对象和一个 `Queue` 接口作为参数。
 
-`QueueInterface` 接口定义了用于存储对象的队列。
+`Queue` 接口定义了用于存储对象的队列。
 
 > [!IMPORTANT]
 >
-> 当使用 `workqueue` 模块时，建议使用 `workqueue.NewSimpleQueue` 函数创建队列。其他队列可能具有去重功能，这可能导致意外的结果。
+> 当使用 `workqueue` 模块时，建议禁用 `WithValueIdempotent` 选项。这个选项确保同一个值不会被添加到队列中多次。然而，在 `Conecta` 模块的上下文中，这并不理想，因为同一个对象可能需要被多次添加到队列中。
+>
+> 幸运的是，'WithValueIdempotent' 选项默认是禁用的。
 
-以下是 `QueueInterface` 接口的定义：
+以下是 `Queue` 接口的定义：
 
 ```go
-// QueueInterface 是一个接口，定义了队列的基本操作，如添加元素、获取长度、遍历元素、获取元素、标记元素处理完成、关闭队列和判断队列是否已关闭
-// QueueInterface is an interface that defines the basic operations of a queue, such as adding elements, getting the length, iterating over elements, getting elements, marking elements as processed, closing the queue, and determining whether the queue is closed
-type QueueInterface = interface {
-	// 添加一个元素到队列
-	// Add an element to the queue
-	Add(element any) error
+// Queue 接口定义了一个队列应该具备的基本操作。
+// The Queue interface defines the basic operations that a queue should have.
+type Queue = interface {
+	// Put 方法用于将元素放入队列。
+	// The Put method is used to put an element into the queue.
+	Put(value interface{}) error
 
-	// 获得 queue 的长度
-	// Get the length of the queue
+	// Get 方法用于从队列中获取元素。
+	// The Get method is used to get an element from the queue.
+	Get() (value interface{}, err error)
+
+	// Done 方法用于标记元素处理完成。
+	// The Done method is used to mark the element as done.
+	Done(value interface{})
+
+	// Len 方法用于获取队列的长度。
+	// The Len method is used to get the length of the queue.
 	Len() int
 
-	// 遍历队列中的元素，如果 fn 返回 false，则停止遍历
-	// Iterate over the elements in the queue, if fn returns false, stop iterating
-	Range(fn func(element any) bool)
+	// Values 方法用于获取队列中的所有元素。
+	// The Values method is used to get all the elements in the queue.
+	Values() []interface{}
 
-	// 获得 queue 中的一个元素，如果 queue 为空，返回 ErrorQueueEmpty
-	// Get an element from the queue, if the queue is empty, return ErrorQueueEmpty
-	Get() (element any, err error)
+	// Range 方法用于遍历队列中的所有元素。
+	// The Range method is used to traverse all elements in the queue.
+	Range(fn func(value interface{}) bool)
 
-	// 标记元素已经处理完成
-	// Mark an element as processed
-	Done(element any)
+	// Shutdown 方法用于关闭队列。
+	// The Shutdown method is used to shut down the queue.
+	Shutdown()
 
-	// 关闭队列
-	// Close the queue
-	Stop()
-
-	// 判断队列是否已经关闭
-	// Determine whether the queue is closed
+	// IsClosed 方法用于检查队列是否已关闭。
+	// The IsClosed method is used to check if the queue is closed.
 	IsClosed() bool
 }
 ```
@@ -144,7 +150,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shengyanli1982/conecta"
-	"github.com/shengyanli1982/workqueue"
+	wkq "github.com/shengyanli1982/workqueue/v2"
 )
 
 // Demo 是一个包含 value 字段的结构体
@@ -186,7 +192,7 @@ func NewFunc() (any, error) {
 func main() {
 	// 创建一个工作队列
 	// Create a work queue.
-	baseQ := workqueue.NewSimpleQueue(nil)
+	baseQ := wkq.NewQueue(nil)
 
 	// 创建一个 Conecta 池
 	// Create a Conecta pool.
@@ -278,7 +284,7 @@ import (
 	"time"
 
 	"github.com/shengyanli1982/conecta"
-	"github.com/shengyanli1982/workqueue"
+	wkq "github.com/shengyanli1982/workqueue/v2"
 )
 
 var (
@@ -726,7 +732,7 @@ func main() {
 
 	// 创建一个工作队列
 	// Create a work queue.
-	baseQ := workqueue.NewSimpleQueue(nil)
+	baseQ := wkq.NewQueue(nil)
 
 	// 创建一个 Conecta 池
 	// Create a Conecta pool.
