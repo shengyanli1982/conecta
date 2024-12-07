@@ -68,6 +68,7 @@ go get github.com/shengyanli1982/conecta
 -   `GetOrCreate`：从池中获取一个对象，如果池为空，则创建一个新对象。
 -   `Put`：将一个对象放回池中。
 -   `Stop`：关闭池。
+-   `Len`：获取池中对象的数量。
 -   `Cleanup`: 清理池，释放所有资源。
 
 > [!NOTE]
