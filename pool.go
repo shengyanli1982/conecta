@@ -16,6 +16,12 @@ var (
 	ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 )
 
+const (
+	// Default timeout for Get operation
+	// Get 操作的默认超时时间
+	defaultItemGetTimeout = 15 * time.Second
+)
+
 // Pool represents a connection pool that manages a collection of elements
 // Pool 表示一个管理元素集合的连接池
 type Pool struct {
@@ -61,7 +67,7 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 	// Start the executor goroutine
 	// 启动执行器goroutine
 	p.wg.Add(1)
-	go p.executor()
+	go p.monitor()
 	return p, nil
 }
 
@@ -151,7 +157,7 @@ func (p *Pool) Get() (any, error) {
 
 	// Create timeout context for get operation
 	// 为获取操作创建超时上下文
-	ctx, cancel := context.WithTimeout(p.ctx, time.Duration(p.config.scanInterval)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(p.ctx, defaultItemGetTimeout)
 	defer cancel()
 
 	for {
@@ -222,34 +228,28 @@ func (p *Pool) Len() int {
 	return p.queue.Len()
 }
 
-// executor runs the main pool maintenance loop
-// 运行连接池的主要维护循环
-func (p *Pool) executor() {
+// monitor runs the pool monitoring loop
+// 运行连接池监控循环
+func (p *Pool) monitor() {
 	ticker := time.NewTicker(time.Millisecond * time.Duration(p.config.scanInterval))
-	defer ticker.Stop()
-	defer p.wg.Done()
+	defer func() {
+		ticker.Stop()
+		p.wg.Done()
+	}()
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
-			p.maintain()
+			p.supervise()
 		}
 	}
 }
 
-// maintain checks and maintains the health of pool elements by:
-// 1. Checking each element's health status using pingFunc
-// 2. Managing retry counts for failed health checks
-// 3. Cleaning up elements that exceed max retry attempts
-// 4. Triggering appropriate callbacks for different scenarios
-//
-// maintain 函数检查并维护连接池元素的健康状态，主要功能包括：
-// 1. 使用 pingFunc 检查每个元素的健康状态
-// 2. 管理健康检查失败时的重试计数
-// 3. 清理超过最大重试次数的元素
-// 4. 触发不同场景下的回调函数
-func (p *Pool) maintain() {
+// supervise checks and maintains pool elements status
+// 检查并维护连接池元素状态
+func (p *Pool) supervise() {
 	p.queue.Range(func(data any) bool {
 		// Convert the data to an Element type and get its value
 		// 将数据转换为 Element 类型并获取其值

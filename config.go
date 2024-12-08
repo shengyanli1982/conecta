@@ -17,9 +17,9 @@ const (
 	// Default interval to scan all object instances (ms)
 	DefaultScanInterval = 10000
 
-	// 默认最小元素间隔 (ms)
-	// Default minimum element interval (ms)
-	DefautMiniItemsInterval = 200
+	// 默认最小元素扫描间隔 (ms)
+	// Default minimum element scan interval (ms)
+	DefautMiniScanItemsInterval = 300
 )
 
 // 定义一些默认的函数
@@ -181,7 +181,7 @@ func isConfigValid(conf *Config) *Config {
 
 		// 如果扫描间隔小于等于初始化值乘以默认最小项间隔，设置为默认扫描间隔
 		// If the scan interval is less than or equal to the initialization value times the default minimum item interval, set it to the default scan interval
-		if conf.scanInterval <= conf.initialize*DefautMiniItemsInterval {
+		if conf.scanInterval < DefautMiniScanItemsInterval {
 			conf.scanInterval = DefaultScanInterval
 		}
 
