@@ -140,7 +140,7 @@ func TestPool_Len(t *testing.T) {
 }
 
 func TestPool_Callback(t *testing.T) {
-	scanInterval := 5000
+	scanInterval := 300
 
 	queue := wkq.NewQueue(nil)
 	conf := conecta.NewConfig().WithCallback(&testCallback{t: t}).WithPingFunc(testCallbackPingFunc).WithCloseFunc(testCallbackCloseFunc).WithPingMaxRetries(1).WithScanInterval(scanInterval)
@@ -371,7 +371,7 @@ func TestPool_Callback_NilCallback(t *testing.T) {
 		WithPingFunc(testCallbackPingFunc).
 		WithCloseFunc(testCallbackCloseFunc).
 		WithPingMaxRetries(1).
-		WithScanInterval(100)
+		WithScanInterval(300)
 
 	p, err := conecta.New(queue, conf)
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestPool_Maintain_HealthyConnection(t *testing.T) {
 			closeCount++
 			return nil
 		}).
-		WithScanInterval(100)
+		WithScanInterval(300)
 
 	p, err := conecta.New(queue, conf)
 	require.NoError(t, err)
@@ -476,7 +476,7 @@ func TestPool_Maintain_HealthyConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 590)
+	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 5, pingCount, "Ping should be called once")
@@ -499,7 +499,7 @@ func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 			closeCount++
 			return nil
 		}).
-		WithScanInterval(100)
+		WithScanInterval(300)
 
 	p, err := conecta.New(queue, conf)
 	require.NoError(t, err)
@@ -511,7 +511,7 @@ func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 590)
+	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 3, pingCount, "Ping should be called once")
@@ -533,7 +533,7 @@ func TestPool_Maintain_RetryMechanism(t *testing.T) {
 			return nil
 		}).
 		WithPingMaxRetries(3).
-		WithScanInterval(100)
+		WithScanInterval(300)
 
 	p, err := conecta.New(queue, conf)
 	require.NoError(t, err)
@@ -545,7 +545,7 @@ func TestPool_Maintain_RetryMechanism(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待足够的时间让重试机制完成
-	time.Sleep(time.Millisecond * 350)
+	time.Sleep(time.Millisecond * 1050) // 300ms * 3 + 150ms buffer
 
 	// 验证重试机制
 	assert.Equal(t, 3, pingAttempts, "Ping should be attempted 3 times")
@@ -567,7 +567,7 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 			closeCount++
 			return nil
 		}).
-		WithScanInterval(100)
+		WithScanInterval(300)
 
 	p, err := conecta.New(queue, conf)
 	require.NoError(t, err)
@@ -581,7 +581,7 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 590)
+	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 10, pingCount, "Ping should be called once for each connection")
