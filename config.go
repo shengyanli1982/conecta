@@ -181,7 +181,7 @@ func isConfigValid(conf *Config) *Config {
 
 		// 如果扫描间隔小于等于初始化值乘以默认最小项间隔，设置为默认扫描间隔
 		// If the scan interval is less than or equal to the initialization value times the default minimum item interval, set it to the default scan interval
-		if conf.scanInterval <= DefautMiniScanItemsInterval {
+		if conf.scanInterval < DefautMiniScanItemsInterval {
 			conf.scanInterval = DefaultScanInterval
 		}
 

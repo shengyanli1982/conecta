@@ -16,6 +16,12 @@ var (
 	ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 )
 
+const (
+	// Default timeout for Get operation
+	// Get 操作的默认超时时间
+	defaultItemGetTimeout = 15 * time.Second
+)
+
 // Pool represents a connection pool that manages a collection of elements
 // Pool 表示一个管理元素集合的连接池
 type Pool struct {
@@ -151,7 +157,7 @@ func (p *Pool) Get() (any, error) {
 
 	// Create timeout context for get operation
 	// 为获取操作创建超时上下文
-	ctx, cancel := context.WithTimeout(p.ctx, time.Duration(p.config.scanInterval)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(p.ctx, defaultItemGetTimeout)
 	defer cancel()
 
 	for {
@@ -226,8 +232,11 @@ func (p *Pool) Len() int {
 // 运行连接池的主要维护循环
 func (p *Pool) executor() {
 	ticker := time.NewTicker(time.Millisecond * time.Duration(p.config.scanInterval))
-	defer ticker.Stop()
-	defer p.wg.Done()
+	defer func() {
+		ticker.Stop()
+		p.wg.Done()
+	}()
+
 	for {
 		select {
 		case <-p.ctx.Done():
