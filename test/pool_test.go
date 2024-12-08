@@ -448,3 +448,143 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 	p.Stop()
 	assert.Equal(t, 0, p.Len())
 }
+
+// TestPool_Maintain_HealthyConnection 测试健康连接的维护
+func TestPool_Maintain_HealthyConnection(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	pingCount := 0
+	closeCount := 0
+
+	conf := conecta.NewConfig().
+		WithPingFunc(func(data any, retryCount int) bool {
+			pingCount++
+			return true // 返回 true 表示连接健康
+		}).
+		WithCloseFunc(func(data any) error {
+			closeCount++
+			return nil
+		}).
+		WithScanInterval(100)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 添加一个测试连接
+	err = p.Put("test-connection")
+	require.NoError(t, err)
+
+	// 等待维护周期执行
+	time.Sleep(time.Millisecond * 550)
+
+	// 验证连接被 ping 但没有被关闭
+	assert.Equal(t, 5, pingCount, "Ping should be called once")
+	assert.Equal(t, 0, closeCount, "Close should not be called for healthy connection")
+	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
+}
+
+// TestPool_Maintain_UnhealthyConnection 测试不健康连接的维护
+func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	pingCount := 0
+	closeCount := 0
+
+	conf := conecta.NewConfig().
+		WithPingFunc(func(data any, retryCount int) bool {
+			pingCount++
+			return false // 返回 false 表示连接不健康
+		}).
+		WithCloseFunc(func(data any) error {
+			closeCount++
+			return nil
+		}).
+		WithScanInterval(100)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 添加一个测试连接
+	err = p.Put("test-connection")
+	require.NoError(t, err)
+
+	// 等待维护周期执行
+	time.Sleep(time.Millisecond * 550)
+
+	// 验证连接被 ping 但没有被关闭
+	assert.Equal(t, 3, pingCount, "Ping should be called once")
+	assert.Equal(t, 1, closeCount, "Close should not be called for healthy connection")
+	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
+}
+
+// TestPool_Maintain_RetryMechanism 测试重试机制
+func TestPool_Maintain_RetryMechanism(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	pingAttempts := 0
+
+	conf := conecta.NewConfig().
+		WithPingFunc(func(data any, retryCount int) bool {
+			pingAttempts++
+			return pingAttempts >= 3 // 第三次尝试时返回成功
+		}).
+		WithCloseFunc(func(data any) error {
+			return nil
+		}).
+		WithPingMaxRetries(3).
+		WithScanInterval(100)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 添加一个测试连接
+	err = p.Put("test-connection")
+	require.NoError(t, err)
+
+	// 等待足够的时间让重试机制完成
+	time.Sleep(time.Millisecond * 350)
+
+	// 验证重试机制
+	assert.Equal(t, 3, pingAttempts, "Ping should be attempted 3 times")
+	assert.Equal(t, 1, p.Len(), "Connection should remain in pool after successful retry")
+}
+
+// TestPool_Maintain_MultipleConnections 测试多个连接的维护
+func TestPool_Maintain_MultipleConnections(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	pingCount := 0
+	closeCount := 0
+
+	conf := conecta.NewConfig().
+		WithPingFunc(func(data any, retryCount int) bool {
+			pingCount++
+			return true
+		}).
+		WithCloseFunc(func(data any) error {
+			closeCount++
+			return nil
+		}).
+		WithScanInterval(100)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 添加测试连接
+	err = p.Put("test-connection-1")
+	require.NoError(t, err)
+	err = p.Put("test-connection-2")
+	require.NoError(t, err)
+
+	// 等待维护周期执行
+	time.Sleep(time.Millisecond * 550)
+
+	// 验证连接被 ping 但没有被关闭
+	assert.Equal(t, 10, pingCount, "Ping should be called once for each connection")
+	assert.Equal(t, 0, closeCount, "Close should not be called for healthy connections")
+	assert.Equal(t, 2, p.Len(), "Connections should remain in pool")
+}

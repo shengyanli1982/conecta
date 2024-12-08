@@ -65,17 +65,6 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 	return p, nil
 }
 
-// Stop gracefully shuts down the pool
-// 优雅地关闭连接池
-func (p *Pool) Stop() {
-	p.once.Do(func() {
-		p.cancel()
-		p.wg.Wait()
-		p.cleanupElements()
-		p.queue.Shutdown()
-	})
-}
-
 // initialize creates and adds initial elements to the pool
 // 初始化连接池，创建并添加初始元素
 func (p *Pool) initialize() error {
@@ -120,65 +109,20 @@ func (p *Pool) initialize() error {
 	return nil
 }
 
-// executor runs the main pool maintenance loop
-// 运行连接池的主要维护循环
-func (p *Pool) executor() {
-	ticker := time.NewTicker(time.Millisecond * time.Duration(p.config.scanInterval))
-	defer ticker.Stop()
-	defer p.wg.Done()
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-ticker.C:
-			p.processElements()
-		}
-	}
-}
-
-// processElements checks and maintains the health of pool elements
-// 检查并维护连接池元素的健康状态
-func (p *Pool) processElements() {
-	p.queue.Range(func(data any) bool {
-		element := data.(*pool.Element)
-		value := element.GetData()
-		retryCount := int(element.GetValue())
-
-		// Check if max retries exceeded
-		// 检查是否超过最大重试次数
-		if retryCount >= p.config.maxRetries {
-			if value != nil {
-				// Close and cleanup failed element
-				// 关闭并清理失败的元素
-				err := p.config.closeFunc(value)
-				p.config.callback.OnClose(value, err)
-				element.SetData(nil)
-			}
-			p.queue.Done(element)
-			p.elementpool.Put(element)
-			return true
-		}
-
-		// Ping element to check health
-		// 对元素进行ping检查健康状态
-		if ok := p.config.pingFunc(value, retryCount); ok {
-			// Reset retry count on success
-			// 成功时重置重试计数
-			element.SetValue(0)
-			p.config.callback.OnPingSuccess(value)
-		} else {
-			// Increment retry count on failure
-			// 失败时增加重试计数
-			element.SetValue(int64(retryCount) + 1)
-			p.config.callback.OnPingFailure(value)
-		}
-		return true
+// Stop gracefully shuts down the pool
+// 优雅地关闭连接池
+func (p *Pool) Stop() {
+	p.once.Do(func() {
+		p.cancel()
+		p.wg.Wait()
+		p.Cleanup()
+		p.queue.Shutdown()
 	})
 }
 
-// cleanupElements cleans up all elements in the pool
+// Cleanup cleans up all elements in the pool
 // 清理连接池中的所有元素
-func (p *Pool) cleanupElements() {
+func (p *Pool) Cleanup() {
 	p.queue.Range(func(data any) bool {
 		element := data.(*pool.Element)
 		if value := element.GetData(); value != nil {
@@ -194,21 +138,6 @@ func (p *Pool) cleanupElements() {
 			break
 		}
 	}
-}
-
-// Put adds a new element to the pool
-// 向连接池中添加新元素
-func (p *Pool) Put(data any) error {
-	if p.queue.IsClosed() {
-		return ErrorQueueClosed
-	}
-	element := p.elementpool.Get()
-	element.SetData(data)
-	if err := p.queue.Put(element); err != nil {
-		p.elementpool.Put(element)
-		return err
-	}
-	return nil
 }
 
 // Get retrieves an element from the pool
@@ -236,10 +165,10 @@ func (p *Pool) Get() (any, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.queue.Done(element)
 
 			// Process the retrieved element
 			// 处理获取到的元素
-			p.queue.Done(element)
 			data := element.(*pool.Element)
 			value := data.GetData()
 			p.elementpool.Put(data)
@@ -272,14 +201,107 @@ func (p *Pool) GetOrCreate() (any, error) {
 	return p.config.newFunc()
 }
 
+// Put adds a new element to the pool
+// 向连接池中添加新元素
+func (p *Pool) Put(data any) error {
+	if p.queue.IsClosed() {
+		return ErrorQueueClosed
+	}
+	element := p.elementpool.Get()
+	element.SetData(data)
+	if err := p.queue.Put(element); err != nil {
+		p.elementpool.Put(element)
+		return err
+	}
+	return nil
+}
+
 // Len returns the current number of elements in the pool
 // 返回连接池中当前的元素数量
 func (p *Pool) Len() int {
 	return p.queue.Len()
 }
 
-// Cleanup performs cleanup of all elements in the pool
-// 执行连接池中所有元素的清理工作
-func (p *Pool) Cleanup() {
-	p.cleanupElements()
+// executor runs the main pool maintenance loop
+// 运行连接池的主要维护循环
+func (p *Pool) executor() {
+	ticker := time.NewTicker(time.Millisecond * time.Duration(p.config.scanInterval))
+	defer ticker.Stop()
+	defer p.wg.Done()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.maintain()
+		}
+	}
+}
+
+// maintain checks and maintains the health of pool elements by:
+// 1. Checking each element's health status using pingFunc
+// 2. Managing retry counts for failed health checks
+// 3. Cleaning up elements that exceed max retry attempts
+// 4. Triggering appropriate callbacks for different scenarios
+//
+// maintain 函数检查并维护连接池元素的健康状态，主要功能包括：
+// 1. 使用 pingFunc 检查每个元素的健康状态
+// 2. 管理健康检查失败时的重试计数
+// 3. 清理超过最大重试次数的元素
+// 4. 触发不同场景下的回调函数
+func (p *Pool) maintain() {
+	p.queue.Range(func(data any) bool {
+		// Convert the data to an Element type and get its value
+		// 将数据转换为 Element 类型并获取其值
+		element := data.(*pool.Element)
+		value := element.GetData()
+
+		// Skip if the element value is nil
+		// 如果元素值为空，直接跳过
+		if value == nil {
+			return true
+		}
+
+		// Get the retry count for this element
+		// 获取该元素的重试计数
+		retryCount := int(element.GetValue())
+
+		// Skip if the element has been marked as invalid (retry count < 0)
+		// 如果重试计数为负数，表示元素已被标记为失效，直接跳过
+		if retryCount < 0 {
+			return true
+		}
+
+		// Check element's health status using pingFunc
+		// 使用 pingFunc 检查元素的健康状态
+		if ok := p.config.pingFunc(value, retryCount); ok {
+			// On successful ping: reset retry count and trigger success callback
+			// Ping 成功：重置重试计数并触发成功回调
+			element.SetValue(0)
+			p.config.callback.OnPingSuccess(value)
+			return true
+		}
+
+		// On ping failure: increment retry count
+		// Ping 失败：增加重试计数
+		retryCount++
+
+		// If max retries exceeded, close and cleanup the element
+		// 如果超过最大重试次数，关闭并清理元素
+		if retryCount >= p.config.maxRetries {
+			// Close the element, trigger close callback, and mark as invalid
+			// 关闭元素，触发关闭回调，并标记为无效
+			err := p.config.closeFunc(value)
+			p.config.callback.OnClose(value, err)
+			element.SetData(nil)
+			element.SetValue(-1)
+		} else {
+			// Update retry count and trigger failure callback if within retry limit
+			// 在重试次数限制内，更新重试计数并触发失败回调
+			element.SetValue(int64(retryCount))
+			p.config.callback.OnPingFailure(value)
+		}
+
+		return true
+	})
 }
