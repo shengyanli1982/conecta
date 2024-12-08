@@ -476,7 +476,7 @@ func TestPool_Maintain_HealthyConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 550)
+	time.Sleep(time.Millisecond * 590)
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 5, pingCount, "Ping should be called once")
@@ -511,7 +511,7 @@ func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 550)
+	time.Sleep(time.Millisecond * 590)
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 3, pingCount, "Ping should be called once")
@@ -581,7 +581,7 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	require.NoError(t, err)
 
 	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 550)
+	time.Sleep(time.Millisecond * 590)
 
 	// 验证连接被 ping 但没有被关闭
 	assert.Equal(t, 10, pingCount, "Ping should be called once for each connection")
