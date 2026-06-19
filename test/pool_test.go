@@ -1,6 +1,7 @@
 package conecta
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -422,7 +423,10 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 			for {
 				_, err := p.Get()
 				if err != nil {
-					// 如果获取失败，短暂等待后重试
+					// 池已关闭（Stop 会先取消 context 再 shutdown queue），退出 goroutine 以避免泄漏
+					if errors.Is(err, conecta.ErrorQueueClosed) || errors.Is(err, context.Canceled) {
+						return
+					}
 					time.Sleep(time.Millisecond)
 					continue
 				}
@@ -447,21 +451,46 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 	// 停止池，确保清理
 	p.Stop()
 	assert.Equal(t, 0, p.Len())
+
+	// 等待所有 goroutine 退出，确认无泄漏（race 超时时会暴露残留 goroutine）
+	wg.Wait()
+}
+
+func TestPool_GetOrCreate_AfterStop(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	var createCount int64
+	conf := conecta.NewConfig().WithNewFunc(func() (any, error) {
+		atomic.AddInt64(&createCount, 1)
+		return "new-item", nil
+	})
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+
+	p.Stop()
+
+	item, err := p.GetOrCreate()
+	assert.Error(t, err)
+	// Stop 先取消 ctx，GetOrCreate 在 ctx 已取消时返回 context.Canceled
+	assert.Equal(t, context.Canceled, err)
+	assert.Nil(t, item)
+	assert.Equal(t, int64(0), atomic.LoadInt64(&createCount), "newFunc should not be called after Stop()")
 }
 
 // TestPool_Maintain_HealthyConnection 测试健康连接的维护
 func TestPool_Maintain_HealthyConnection(t *testing.T) {
 	queue := wkq.NewQueue(nil)
-	pingCount := 0
-	closeCount := 0
+	var pingCount int64
+	var closeCount int64
 
 	conf := conecta.NewConfig().
 		WithPingFunc(func(data any, retryCount int) bool {
-			pingCount++
+			atomic.AddInt64(&pingCount, 1)
 			return true // 返回 true 表示连接健康
 		}).
 		WithCloseFunc(func(data any) error {
-			closeCount++
+			atomic.AddInt64(&closeCount, 1)
 			return nil
 		}).
 		WithScanInterval(300)
@@ -479,24 +508,24 @@ func TestPool_Maintain_HealthyConnection(t *testing.T) {
 	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, 5, pingCount, "Ping should be called once")
-	assert.Equal(t, 0, closeCount, "Close should not be called for healthy connection")
+	assert.Equal(t, int64(5), atomic.LoadInt64(&pingCount), "Ping should be called once")
+	assert.Equal(t, int64(0), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connection")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
 }
 
 // TestPool_Maintain_UnhealthyConnection 测试不健康连接的维护
 func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 	queue := wkq.NewQueue(nil)
-	pingCount := 0
-	closeCount := 0
+	var pingCount int64
+	var closeCount int64
 
 	conf := conecta.NewConfig().
 		WithPingFunc(func(data any, retryCount int) bool {
-			pingCount++
+			atomic.AddInt64(&pingCount, 1)
 			return false // 返回 false 表示连接不健康
 		}).
 		WithCloseFunc(func(data any) error {
-			closeCount++
+			atomic.AddInt64(&closeCount, 1)
 			return nil
 		}).
 		WithScanInterval(300)
@@ -514,20 +543,20 @@ func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, 3, pingCount, "Ping should be called once")
-	assert.Equal(t, 1, closeCount, "Close should not be called for healthy connection")
+	assert.Equal(t, int64(3), atomic.LoadInt64(&pingCount), "Ping should be called once")
+	assert.Equal(t, int64(1), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connection")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
 }
 
 // TestPool_Maintain_RetryMechanism 测试重试机制
 func TestPool_Maintain_RetryMechanism(t *testing.T) {
 	queue := wkq.NewQueue(nil)
-	pingAttempts := 0
+	var pingAttempts int64
 
 	conf := conecta.NewConfig().
 		WithPingFunc(func(data any, retryCount int) bool {
-			pingAttempts++
-			return pingAttempts >= 3 // 第三次尝试时返回成功
+			current := atomic.AddInt64(&pingAttempts, 1)
+			return current >= 3 // 第三次尝试时返回成功
 		}).
 		WithCloseFunc(func(data any) error {
 			return nil
@@ -548,23 +577,23 @@ func TestPool_Maintain_RetryMechanism(t *testing.T) {
 	time.Sleep(time.Millisecond * 1050) // 300ms * 3 + 150ms buffer
 
 	// 验证重试机制
-	assert.Equal(t, 3, pingAttempts, "Ping should be attempted 3 times")
+	assert.Equal(t, int64(3), atomic.LoadInt64(&pingAttempts), "Ping should be attempted 3 times")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool after successful retry")
 }
 
 // TestPool_Maintain_MultipleConnections 测试多个连接的维护
 func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	queue := wkq.NewQueue(nil)
-	pingCount := 0
-	closeCount := 0
+	var pingCount int64
+	var closeCount int64
 
 	conf := conecta.NewConfig().
 		WithPingFunc(func(data any, retryCount int) bool {
-			pingCount++
+			atomic.AddInt64(&pingCount, 1)
 			return true
 		}).
 		WithCloseFunc(func(data any) error {
-			closeCount++
+			atomic.AddInt64(&closeCount, 1)
 			return nil
 		}).
 		WithScanInterval(300)
@@ -584,7 +613,7 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
 
 	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, 10, pingCount, "Ping should be called once for each connection")
-	assert.Equal(t, 0, closeCount, "Close should not be called for healthy connections")
+	assert.Equal(t, int64(10), atomic.LoadInt64(&pingCount), "Ping should be called once for each connection")
+	assert.Equal(t, int64(0), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connections")
 	assert.Equal(t, 2, p.Len(), "Connections should remain in pool")
 }

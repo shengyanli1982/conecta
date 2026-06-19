@@ -16,12 +16,6 @@ var (
 	ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
 )
 
-const (
-	// Default timeout for Get operation
-	// Get 操作的默认超时时间
-	defaultItemGetTimeout = 15 * time.Second
-)
-
 // Pool represents a connection pool that manages a collection of elements
 // Pool 表示一个管理元素集合的连接池
 type Pool struct {
@@ -74,45 +68,56 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 // initialize creates and adds initial elements to the pool
 // 初始化连接池，创建并添加初始元素
 func (p *Pool) initialize() error {
-	// Create a slice to hold initial elements
-	// 创建切片来存储初始元素
-	elements := make([]any, 0, p.config.initialize)
-
-	// Create initial elements using newFunc
-	// 使用newFunc创建初始元素
+	// Create and enqueue initial elements one by one
+	// 逐个创建并入队初始元素
 	for i := 0; i < p.config.initialize; i++ {
-		if value, err := p.config.newFunc(); err != nil {
-			// Cleanup on error: close all created elements
-			// 错误清理：关闭所有已创建的元素
-			for _, v := range elements {
-				if v != nil {
-					_ = p.config.closeFunc(v)
-				}
+		value, err := p.config.newFunc()
+		if err != nil {
+			// newFunc 失败：关闭本次创建的 value（从未入队），并清理已入队的元素
+			// newFunc failed: close this value (never enqueued) and drain already enqueued elements
+			if value != nil {
+				_ = p.config.closeFunc(value)
 			}
+			p.drainAndClose()
 			return err
-		} else {
-			elements = append(elements, value)
 		}
-	}
 
-	// Add elements to the queue
-	// 将元素添加到队列中
-	for _, value := range elements {
+		// Wrap value in element and enqueue
+		// 将 value 包装到 element 并入队
 		element := p.elementpool.Get()
 		element.SetData(value)
 		if err := p.queue.Put(element); err != nil {
-			// Cleanup on error: return element to pool and close all elements
-			// 错误清理：将元素返回到池中并关闭所有元素
+			// queue.Put 失败：归还 wrapper 并关闭本次创建的 value，并清理已入队的元素
+			// queue.Put failed: return wrapper, close this value (never enqueued), and drain already enqueued elements
 			p.elementpool.Put(element)
-			for _, v := range elements {
-				if v != nil {
-					_ = p.config.closeFunc(v)
-				}
+			if value != nil {
+				_ = p.config.closeFunc(value)
 			}
+			p.drainAndClose()
 			return err
 		}
 	}
+
+	// All elements successfully enqueued; caller (Stop/Cleanup) is responsible for cleanup
+	// 所有元素已成功入队；调用方（Stop/Cleanup）负责后续清理
 	return nil
+}
+
+// drainAndClose drains all queued elements, closes their values, and returns wrappers to the element pool.
+// 排空队列中所有已入队的元素，关闭它们的 value，并将 wrapper 归还给 elementpool。
+func (p *Pool) drainAndClose() {
+	for {
+		elem, err := p.queue.Get()
+		if err != nil {
+			break
+		}
+		p.queue.Done(elem)
+		wrapper := elem.(*pool.Element)
+		if v := wrapper.GetData(); v != nil {
+			_ = p.config.closeFunc(v)
+		}
+		p.elementpool.Put(wrapper)
+	}
 }
 
 // Stop gracefully shuts down the pool
@@ -129,20 +134,26 @@ func (p *Pool) Stop() {
 // Cleanup cleans up all elements in the pool
 // 清理连接池中的所有元素
 func (p *Pool) Cleanup() {
+	// Phase 1: Close all values but do NOT return wrappers to elementpool
+	// 第一阶段：关闭所有 value，但不归还 wrapper 到 elementpool
 	p.queue.Range(func(data any) bool {
 		element := data.(*pool.Element)
 		if value := element.GetData(); value != nil {
 			err := p.config.closeFunc(value)
 			p.config.callback.OnClose(value, err)
 			element.Reset()
-			p.elementpool.Put(element)
 		}
 		return true
 	})
+	// Phase 2: Drain queue and return all wrappers to elementpool
+	// 第二阶段：排空队列，回收所有 wrapper 到 elementpool
 	for {
-		if _, err := p.Get(); err != nil {
+		element, err := p.queue.Get()
+		if err != nil {
 			break
 		}
+		p.queue.Done(element)
+		p.elementpool.Put(element.(*pool.Element))
 	}
 }
 
@@ -155,55 +166,55 @@ func (p *Pool) Get() (any, error) {
 		return nil, ErrorQueueClosed
 	}
 
-	// Create timeout context for get operation
-	// 为获取操作创建超时上下文
-	ctx, cancel := context.WithTimeout(p.ctx, defaultItemGetTimeout)
-	defer cancel()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			// Try to get element from queue
-			// 尝试从队列中获取元素
-			element, err := p.queue.Get()
-			if err != nil {
-				return nil, err
-			}
-			p.queue.Done(element)
-
-			// Process the retrieved element
-			// 处理获取到的元素
-			data := element.(*pool.Element)
-			value := data.GetData()
-			p.elementpool.Put(data)
-
-			if value != nil {
-				return value, nil
-			}
+		// Check if pool context is cancelled
+		// 检查连接池上下文是否已取消
+		if p.ctx.Err() != nil {
+			return nil, p.ctx.Err()
 		}
+
+		// Try to get element from queue
+		// 尝试从队列中获取元素
+		element, err := p.queue.Get()
+		if err != nil {
+			return nil, err
+		}
+		p.queue.Done(element)
+
+		wrapper := element.(*pool.Element)
+		wrapper.Lock()
+		value := wrapper.GetDataNoLock()
+		if value == nil {
+			wrapper.SetValueNoLock(0)
+			wrapper.Unlock()
+			p.elementpool.PutRaw(wrapper)
+			continue
+		}
+		wrapper.SetValueNoLock(0)
+		wrapper.Unlock()
+
+		p.elementpool.PutRaw(wrapper)
+		return value, nil
 	}
 }
 
 // GetOrCreate gets an element from the pool or creates a new one if none is available
 // 从连接池获取元素，如果没有可用元素则创建新的
 func (p *Pool) GetOrCreate() (any, error) {
-	// Try to get existing element first
-	// 首先尝试获取现有元素
 	value, err := p.Get()
 	if err == nil {
 		return value, nil
 	}
 
-	// Return error if queue is closed
-	// 如果队列已关闭则返回错误
-	if errors.Is(err, ErrorQueueClosed) {
+	// 池已关闭（ctx 已取消或队列已关闭）：不创建新连接
+	// Pool is closed (ctx cancelled or queue shutdown): do not create new connections
+	if p.ctx.Err() != nil || errors.Is(err, ErrorQueueClosed) {
+		if p.ctx.Err() != nil {
+			return nil, p.ctx.Err()
+		}
 		return nil, err
 	}
 
-	// Create new element if none available
-	// 如果没有可用元素则创建新元素
 	return p.config.newFunc()
 }
 
@@ -214,7 +225,7 @@ func (p *Pool) Put(data any) error {
 		return ErrorQueueClosed
 	}
 	element := p.elementpool.Get()
-	element.SetData(data)
+	element.SetDataNoLock(data)
 	if err := p.queue.Put(element); err != nil {
 		p.elementpool.Put(element)
 		return err
@@ -251,54 +262,34 @@ func (p *Pool) monitor() {
 // 检查并维护连接池元素状态
 func (p *Pool) supervise() {
 	p.queue.Range(func(data any) bool {
-		// Convert the data to an Element type and get its value
-		// 将数据转换为 Element 类型并获取其值
 		element := data.(*pool.Element)
-		value := element.GetData()
+		element.Lock()
+		defer element.Unlock()
 
-		// Skip if the element value is nil
-		// 如果元素值为空，直接跳过
+		value := element.GetDataNoLock()
 		if value == nil {
 			return true
 		}
 
-		// Get the retry count for this element
-		// 获取该元素的重试计数
-		retryCount := int(element.GetValue())
-
-		// Skip if the element has been marked as invalid (retry count < 0)
-		// 如果重试计数为负数，表示元素已被标记为失效，直接跳过
+		retryCount := int(element.GetValueNoLock())
 		if retryCount < 0 {
 			return true
 		}
 
-		// Check element's health status using pingFunc
-		// 使用 pingFunc 检查元素的健康状态
 		if ok := p.config.pingFunc(value, retryCount); ok {
-			// On successful ping: reset retry count and trigger success callback
-			// Ping 成功：重置重试计数并触发成功回调
-			element.SetValue(0)
+			element.SetValueNoLock(0)
 			p.config.callback.OnPingSuccess(value)
 			return true
 		}
 
-		// On ping failure: increment retry count
-		// Ping 失败：增加重试计数
 		retryCount++
-
-		// If max retries exceeded, close and cleanup the element
-		// 如果超过最大重试次数，关闭并清理元素
 		if retryCount >= p.config.maxRetries {
-			// Close the element, trigger close callback, and mark as invalid
-			// 关闭元素，触发关闭回调，并标记为无效
 			err := p.config.closeFunc(value)
 			p.config.callback.OnClose(value, err)
-			element.SetData(nil)
-			element.SetValue(-1)
+			element.SetDataNoLock(nil)
+			element.SetValueNoLock(-1)
 		} else {
-			// Update retry count and trigger failure callback if within retry limit
-			// 在重试次数限制内，更新重试计数并触发失败回调
-			element.SetValue(int64(retryCount))
+			element.SetValueNoLock(int64(retryCount))
 			p.config.callback.OnPingFailure(value)
 		}
 

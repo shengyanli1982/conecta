@@ -19,7 +19,7 @@ const (
 
 	// 默认最小元素扫描间隔 (ms)
 	// Default minimum element scan interval (ms)
-	DefautMiniScanItemsInterval = 300
+	DefaultMiniScanItemsInterval = 300
 )
 
 // 定义一些默认的函数
@@ -179,9 +179,9 @@ func isConfigValid(conf *Config) *Config {
 			conf.maxRetries = DefaultMaxPingRetry
 		}
 
-		// 如果扫描间隔小于等于初始化值乘以默认最小项间隔，设置为默认扫描间隔
-		// If the scan interval is less than or equal to the initialization value times the default minimum item interval, set it to the default scan interval
-		if conf.scanInterval < DefautMiniScanItemsInterval {
+		// 如果扫描间隔小于默认最小元素扫描间隔，设置为默认扫描间隔
+		// If the scan interval is less than the default minimum element scan interval, set it to the default scan interval
+		if conf.scanInterval < DefaultMiniScanItemsInterval {
 			conf.scanInterval = DefaultScanInterval
 		}
 
