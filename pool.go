@@ -4,16 +4,30 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shengyanli1982/conecta/internal/pool"
 )
 
+// 连接池包的哨兵错误定义；Go 惯用哨兵错误使用 Err 前缀（stdlib 惯例）
+// Sentinel error definitions for the pool package; idiomatic Go sentinel errors use the Err prefix (stdlib convention)
 var (
-	// Error definitions for the pool package
-	// 连接池包的错误定义
-	ErrorQueueClosed         = errors.New("queue is closed")
-	ErrorQueueInterfaceIsNil = errors.New("queue interface is nil")
+	// ErrQueueClosed 表示底层队列已关闭，池停止后的所有操作返回该错误
+	// ErrQueueClosed indicates the underlying queue is closed; all pool operations return it after Stop
+	ErrQueueClosed = errors.New("queue is closed")
+
+	// ErrQueueIsNil 表示创建池时传入的队列接口为 nil
+	// ErrQueueIsNil indicates the queue interface passed to New is nil
+	ErrQueueIsNil = errors.New("queue interface is nil")
+
+	// ErrPoolEmpty 表示池中没有可借用的元素
+	// ErrPoolEmpty indicates the pool has no element available to borrow
+	ErrPoolEmpty = errors.New("pool is empty")
+
+	// ErrValueIsNil 表示要放入池中的元素为 nil
+	// ErrValueIsNil indicates the element to be put into the pool is nil
+	ErrValueIsNil = errors.New("value is nil")
 )
 
 // Pool represents a connection pool that manages a collection of elements
@@ -25,7 +39,9 @@ type Pool struct {
 	once        sync.Once          // Ensures Stop() is called only once / 确保Stop()只被调用一次
 	ctx         context.Context    // Context for cancellation / 用于取消操作的上下文
 	cancel      context.CancelFunc // Context cancellation function / 上下文取消函数
-	elementpool *pool.ElementPool  // Pool for element objects / 元素对象池
+	elementPool *pool.ElementPool  // Pool for element objects / 元素对象池
+	stopGate    sync.RWMutex       // Stop 门闩，防止 Stop 窗口期并发 Put 泄漏 / stop gate preventing concurrent Put leaks during Stop window
+	stopped     atomic.Bool        // 停止标记位，热路径免锁快速判定 / lock-free stop flag for hot paths
 }
 
 // New creates a new Pool instance with the given queue and configuration
@@ -34,11 +50,11 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 	// Check if queue interface is valid
 	// 检查队列接口是否有效
 	if queue == nil {
-		return nil, ErrorQueueInterfaceIsNil
+		return nil, ErrQueueIsNil
 	}
 	// Validate and normalize configuration
 	// 验证并规范化配置
-	conf = isConfigValid(conf)
+	conf = normalizeConfig(conf)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create new pool instance with initialized fields
@@ -46,7 +62,7 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 	p := &Pool{
 		queue:       queue,
 		config:      conf,
-		elementpool: pool.NewElementPool(),
+		elementPool: pool.NewElementPool(),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -70,7 +86,7 @@ func New(queue Queue, conf *Config) (*Pool, error) {
 func (p *Pool) initialize() error {
 	// Create and enqueue initial elements one by one
 	// 逐个创建并入队初始元素
-	for i := 0; i < p.config.initialize; i++ {
+	for range p.config.initialize {
 		value, err := p.config.newFunc()
 		if err != nil {
 			// newFunc 失败：关闭本次创建的 value（从未入队），并清理已入队的元素
@@ -84,12 +100,12 @@ func (p *Pool) initialize() error {
 
 		// Wrap value in element and enqueue
 		// 将 value 包装到 element 并入队
-		element := p.elementpool.Get()
+		element := p.elementPool.Get()
 		element.SetData(value)
 		if err := p.queue.Put(element); err != nil {
 			// queue.Put 失败：归还 wrapper 并关闭本次创建的 value，并清理已入队的元素
 			// queue.Put failed: return wrapper, close this value (never enqueued), and drain already enqueued elements
-			p.elementpool.Put(element)
+			p.elementPool.Put(element)
 			if value != nil {
 				_ = p.config.closeFunc(value)
 			}
@@ -104,7 +120,7 @@ func (p *Pool) initialize() error {
 }
 
 // drainAndClose drains all queued elements, closes their values, and returns wrappers to the element pool.
-// 排空队列中所有已入队的元素，关闭它们的 value，并将 wrapper 归还给 elementpool。
+// 排空队列中所有已入队的元素，关闭它们的 value，并将 wrapper 归还给 elementPool。
 func (p *Pool) drainAndClose() {
 	for {
 		elem, err := p.queue.Get()
@@ -116,7 +132,7 @@ func (p *Pool) drainAndClose() {
 		if v := wrapper.GetData(); v != nil {
 			_ = p.config.closeFunc(v)
 		}
-		p.elementpool.Put(wrapper)
+		p.elementPool.Put(wrapper)
 	}
 }
 
@@ -124,8 +140,15 @@ func (p *Pool) drainAndClose() {
 // 优雅地关闭连接池
 func (p *Pool) Stop() {
 	p.once.Do(func() {
+		// 先置位停止标记，使热路径（Get/Put）的免锁判定立即生效，再取消上下文
+		// Set the stop flag first so the lock-free hot-path checks (Get/Put) take effect immediately, then cancel the context
+		p.stopped.Store(true)
 		p.cancel()
 		p.wg.Wait()
+		// 持有 Stop 门闩写锁，排除并发 Put 后再执行清理与关闭队列
+		// Hold the stop gate write lock to exclude concurrent Put before cleanup and queue shutdown
+		p.stopGate.Lock()
+		defer p.stopGate.Unlock()
 		p.Cleanup()
 		p.queue.Shutdown()
 	})
@@ -134,26 +157,54 @@ func (p *Pool) Stop() {
 // Cleanup cleans up all elements in the pool
 // 清理连接池中的所有元素
 func (p *Pool) Cleanup() {
-	// Phase 1: Close all values but do NOT return wrappers to elementpool
-	// 第一阶段：关闭所有 value，但不归还 wrapper 到 elementpool
+	// Phase 1: Close all values but do NOT return wrappers to elementPool
+	// 第一阶段：关闭所有 value，但不归还 wrapper 到 elementPool
 	p.queue.Range(func(data any) bool {
 		element := data.(*pool.Element)
-		if value := element.GetData(); value != nil {
-			err := p.config.closeFunc(value)
-			p.config.callback.OnClose(value, err)
-			element.Reset()
+		// 在元素锁内原子认领 value，避免与 supervise 双重关闭
+		// Atomically claim the value under the element lock to avoid double close with supervise
+		element.Lock()
+		value := element.GetDataNoLock()
+		if value == nil {
+			element.Unlock()
+			return true
 		}
+		element.SetDataNoLock(nil)
+		element.Unlock()
+		// 在元素锁外执行关闭与回调
+		// Execute close and callback outside the element lock
+		err := p.config.closeFunc(value)
+		p.config.callback.OnClose(value, err)
 		return true
 	})
-	// Phase 2: Drain queue and return all wrappers to elementpool
-	// 第二阶段：排空队列，回收所有 wrapper 到 elementpool
+	// Phase 2: Drain queue and return all wrappers to elementPool
+	// 第二阶段：排空队列，回收所有 wrapper 到 elementPool
 	for {
 		element, err := p.queue.Get()
 		if err != nil {
 			break
 		}
 		p.queue.Done(element)
-		p.elementpool.Put(element.(*pool.Element))
+		wrapper := element.(*pool.Element)
+		// 关闭守卫：standalone Cleanup 期间并发 Put 进入的元素（阶段1 Range 之后入队）仍持有 data，
+		// 按认领模式关闭，避免被静默丢失关闭
+		// Close guard: elements enqueued by concurrent Put during standalone Cleanup
+		// (after the phase-1 Range) still hold data; claim and close them so they
+		// are not silently lost without closing
+		wrapper.Lock()
+		value := wrapper.GetDataNoLock()
+		if value == nil {
+			wrapper.Unlock()
+			p.elementPool.Put(wrapper)
+			continue
+		}
+		wrapper.SetDataNoLock(nil)
+		wrapper.Unlock()
+		// 在元素锁外执行关闭与回调
+		// Execute close and callback outside the element lock
+		closeErr := p.config.closeFunc(value)
+		p.config.callback.OnClose(value, closeErr)
+		p.elementPool.Put(wrapper)
 	}
 }
 
@@ -163,21 +214,26 @@ func (p *Pool) Get() (any, error) {
 	// Check if queue is closed
 	// 检查队列是否已关闭
 	if p.queue.IsClosed() {
-		return nil, ErrorQueueClosed
+		return nil, ErrQueueClosed
 	}
 
 	for {
-		// Check if pool context is cancelled
-		// 检查连接池上下文是否已取消
-		if p.ctx.Err() != nil {
-			return nil, p.ctx.Err()
+		// Check if the pool is stopped (lock-free fast path, avoids cancelCtx mutex)
+		// 检查连接池是否已停止（免锁快速路径，避免 cancelCtx 互斥锁开销）
+		if p.stopped.Load() {
+			return nil, ErrQueueClosed
 		}
 
 		// Try to get element from queue
 		// 尝试从队列中获取元素
 		element, err := p.queue.Get()
 		if err != nil {
-			return nil, err
+			// 队列可能已被并发关闭：优先返回关闭错误，否则返回预分配的空池哨兵错误（零分配）
+			// The queue may be closed concurrently: prefer the closed error, otherwise return the pre-allocated empty-pool sentinel (zero allocation)
+			if p.queue.IsClosed() {
+				return nil, ErrQueueClosed
+			}
+			return nil, ErrPoolEmpty
 		}
 		p.queue.Done(element)
 
@@ -185,15 +241,18 @@ func (p *Pool) Get() (any, error) {
 		wrapper.Lock()
 		value := wrapper.GetDataNoLock()
 		if value == nil {
-			wrapper.SetValueNoLock(0)
+			wrapper.SetRetriesNoLock(0)
 			wrapper.Unlock()
-			p.elementpool.PutRaw(wrapper)
+			p.elementPool.PutRaw(wrapper)
 			continue
 		}
-		wrapper.SetValueNoLock(0)
+		wrapper.SetRetriesNoLock(0)
+		// Clear the reference so the wrapper returned to sync.Pool does not retain the user value
+		// 清除引用，防止归还 sync.Pool 的 wrapper 滞留用户 value
+		wrapper.SetDataNoLock(nil)
 		wrapper.Unlock()
 
-		p.elementpool.PutRaw(wrapper)
+		p.elementPool.PutRaw(wrapper)
 		return value, nil
 	}
 }
@@ -206,12 +265,9 @@ func (p *Pool) GetOrCreate() (any, error) {
 		return value, nil
 	}
 
-	// 池已关闭（ctx 已取消或队列已关闭）：不创建新连接
-	// Pool is closed (ctx cancelled or queue shutdown): do not create new connections
-	if p.ctx.Err() != nil || errors.Is(err, ErrorQueueClosed) {
-		if p.ctx.Err() != nil {
-			return nil, p.ctx.Err()
-		}
+	// 池已关闭：不创建新元素
+	// Pool is closed: do not create new elements
+	if errors.Is(err, ErrQueueClosed) {
 		return nil, err
 	}
 
@@ -221,13 +277,33 @@ func (p *Pool) GetOrCreate() (any, error) {
 // Put adds a new element to the pool
 // 向连接池中添加新元素
 func (p *Pool) Put(data any) error {
-	if p.queue.IsClosed() {
-		return ErrorQueueClosed
+	// 拒绝 nil 值
+	// Reject nil values
+	if data == nil {
+		return ErrValueIsNil
 	}
-	element := p.elementpool.Get()
+
+	// 持有 Stop 门闩读锁，防止 Stop 窗口期并发 Put 泄漏元素
+	// Hold the stop gate read lock to prevent concurrent Put from leaking elements during the Stop window
+	p.stopGate.RLock()
+	defer p.stopGate.RUnlock()
+
+	// 检查连接池是否已停止或队列是否已关闭（免锁快速路径）
+	// Check if the pool is stopped or the queue is closed (lock-free fast path)
+	if p.stopped.Load() || p.queue.IsClosed() {
+		return ErrQueueClosed
+	}
+	element := p.elementPool.Get()
+	// wrapper 来自 elementPool（sync.Pool 返回的独占对象），在 queue.Put 发布前为当前 goroutine 独占，无需加锁
+	// The wrapper obtained from elementPool (an exclusive object returned by sync.Pool) is exclusively owned by this goroutine before being published via queue.Put, no lock needed
 	element.SetDataNoLock(data)
 	if err := p.queue.Put(element); err != nil {
-		p.elementpool.Put(element)
+		p.elementPool.Put(element)
+		// 队列被并发关闭时统一映射为 ErrQueueClosed；其余错误（如幂等队列的 AlreadyExist）原样透传
+		// Map a concurrently closed queue to ErrQueueClosed; pass through other errors (e.g. AlreadyExist from idempotent queues) as-is
+		if p.queue.IsClosed() {
+			return ErrQueueClosed
+		}
 		return err
 	}
 	return nil
@@ -261,38 +337,40 @@ func (p *Pool) monitor() {
 // supervise checks and maintains pool elements status
 // 检查并维护连接池元素状态
 func (p *Pool) supervise() {
-	p.queue.Range(func(data any) bool {
-		element := data.(*pool.Element)
+	// 使用 Values() 获取队列短锁快照，不再持有队列锁执行用户 I/O
+	// Take a short-lock snapshot of the queue via Values() instead of holding the queue lock during user I/O
+	for _, item := range p.queue.Values() {
+		element := item.(*pool.Element)
 		element.Lock()
-		defer element.Unlock()
-
 		value := element.GetDataNoLock()
 		if value == nil {
-			return true
+			element.Unlock()
+			continue
 		}
-
-		retryCount := int(element.GetValueNoLock())
+		retryCount := int(element.GetRetriesNoLock())
 		if retryCount < 0 {
-			return true
+			element.Unlock()
+			continue
 		}
-
-		if ok := p.config.pingFunc(value, retryCount); ok {
-			element.SetValueNoLock(0)
+		if p.config.pingFunc(value, retryCount) {
+			element.SetRetriesNoLock(0)
+			element.Unlock()
 			p.config.callback.OnPingSuccess(value)
-			return true
+			continue
 		}
-
 		retryCount++
 		if retryCount >= p.config.maxRetries {
+			// 先在元素锁内置 nil 认领，与 Cleanup 互斥，杜绝双重关闭
+			// Claim by setting nil under the element lock first, exclusive with Cleanup to prevent double close
+			element.SetDataNoLock(nil)
+			element.SetRetriesNoLock(-1)
+			element.Unlock()
 			err := p.config.closeFunc(value)
 			p.config.callback.OnClose(value, err)
-			element.SetDataNoLock(nil)
-			element.SetValueNoLock(-1)
 		} else {
-			element.SetValueNoLock(int64(retryCount))
+			element.SetRetriesNoLock(int64(retryCount))
+			element.Unlock()
 			p.config.callback.OnPingFailure(value)
 		}
-
-		return true
-	})
+	}
 }

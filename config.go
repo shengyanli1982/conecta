@@ -1,40 +1,43 @@
 package conecta
 
-import "math"
+import (
+	"errors"
+	"math"
+)
 
 // 定义一些默认的常量
 // Define some default constants
 const (
-	// 默认初始化元素的数量
-	// Default number of elements to initialize
+	// DefaultInitialize 是默认初始化元素的数量
+	// DefaultInitialize is the default number of elements to initialize
 	DefaultInitialize = 0
 
-	// 默认最大重试次数
-	// Default maximum number of retries
+	// DefaultMaxPingRetry 是默认的最大 ping 重试次数
+	// DefaultMaxPingRetry is the default maximum number of ping retries
 	DefaultMaxPingRetry = 3
 
-	// 默认扫描全部对象实例间隔 (ms)
-	// Default interval to scan all object instances (ms)
+	// DefaultScanInterval 是默认扫描全部对象实例的间隔 (ms)
+	// DefaultScanInterval is the default interval to scan all object instances (ms)
 	DefaultScanInterval = 10000
 
-	// 默认最小元素扫描间隔 (ms)
-	// Default minimum element scan interval (ms)
-	DefaultMiniScanItemsInterval = 300
+	// MinScanInterval 是扫描间隔的下限 (ms)
+	// MinScanInterval is the minimum allowed scan interval (ms)
+	MinScanInterval = 300
 )
 
 // 定义一些默认的函数
 // Define some default functions
 var (
-	// 默认的创建新元素的函数
-	// Default function to create a new element
-	DefaultNewFunc = func() (any, error) { return nil, nil }
+	// DefaultNewFunc 是默认的创建新元素的函数（未配置时返回错误）
+	// DefaultNewFunc is the default function to create a new element (returns an error when not configured)
+	DefaultNewFunc = func() (any, error) { return nil, errors.New("newFunc not configured") }
 
-	// 默认的验证函数
-	// Default validation function
+	// DefaultPingFunc 是默认的验证函数（始终返回健康）
+	// DefaultPingFunc is the default validation function (always reports healthy)
 	DefaultPingFunc = func(any, int) bool { return true }
 
-	// 默认的关闭函数
-	// Default close function
+	// DefaultCloseFunc 是默认的关闭函数（空操作）
+	// DefaultCloseFunc is the default close function (no-op)
 	DefaultCloseFunc = func(any) error { return nil }
 )
 
@@ -161,9 +164,9 @@ func (c *Config) WithPingMaxRetries(maxRetries int) *Config {
 	return c
 }
 
-// isConfigValid 是验证配置是否有效的函数
-// isConfigValid is the function to validate whether the configuration is valid
-func isConfigValid(conf *Config) *Config {
+// normalizeConfig 验证并规范化配置
+// normalizeConfig validates and normalizes the configuration
+func normalizeConfig(conf *Config) *Config {
 	// 如果配置不为空
 	// If the configuration is not null
 	if conf != nil {
@@ -179,10 +182,10 @@ func isConfigValid(conf *Config) *Config {
 			conf.maxRetries = DefaultMaxPingRetry
 		}
 
-		// 如果扫描间隔小于默认最小元素扫描间隔，设置为默认扫描间隔
-		// If the scan interval is less than the default minimum element scan interval, set it to the default scan interval
-		if conf.scanInterval < DefaultMiniScanItemsInterval {
-			conf.scanInterval = DefaultScanInterval
+		// 如果扫描间隔小于扫描间隔下限，钳制到下限
+		// If the scan interval is less than the minimum allowed scan interval, clamp to the minimum
+		if conf.scanInterval < MinScanInterval {
+			conf.scanInterval = MinScanInterval
 		}
 
 		// 如果新建函数为空，设置为默认新建函数

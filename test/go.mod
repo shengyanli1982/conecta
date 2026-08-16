@@ -1,6 +1,6 @@
 module github.com/shengyanli1982/conecta/test
 
-go 1.21
+go 1.23
 
 replace github.com/shengyanli1982/conecta => ../
 

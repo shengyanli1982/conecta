@@ -74,7 +74,7 @@ func main() {
 
 	// 使用 for 循环从池中获取数据
 	// Use a for loop to get data from the pool
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// 使用 GetOrCreate 方法从池中获取数据
 		// Use the GetOrCreate method to get data from the pool
 		if data, err := pool.GetOrCreate(); err != nil {
