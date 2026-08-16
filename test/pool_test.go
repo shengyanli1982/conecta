@@ -1,7 +1,6 @@
 package conecta
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -83,7 +82,9 @@ func TestPool_Get(t *testing.T) {
 	_, err = p.Get()
 
 	assert.NotNil(t, err)
-	assert.Equal(t, wkq.ErrQueueIsEmpty, err)
+	// 空池 Get 返回裸哨兵 ErrPoolEmpty（零分配热路径，不包装底层队列错误），errors.Is 对其直接成立
+	// Get on an empty pool returns the bare sentinel ErrPoolEmpty (zero-allocation hot path, no wrapping of the underlying queue error); errors.Is matches it directly
+	assert.True(t, errors.Is(err, conecta.ErrPoolEmpty))
 }
 
 func TestPool_GetOrCreate(t *testing.T) {
@@ -122,7 +123,7 @@ func TestPool_Stop(t *testing.T) {
 
 	data, err := p.Get()
 	assert.Nil(t, data)
-	assert.Equal(t, conecta.ErrorQueueClosed, err)
+	assert.Equal(t, conecta.ErrQueueClosed, err)
 }
 
 func TestPool_Len(t *testing.T) {
@@ -156,7 +157,7 @@ func TestPool_Callback(t *testing.T) {
 	_ = p.Put("success")
 	_ = p.Put("fail")
 
-	fmt.Println("Please wait for the callback to be executed... (11 seconds)")
+	fmt.Println("Please wait for the callback to be executed... (about 1.6 seconds)")
 
 	time.Sleep(time.Millisecond * time.Duration(scanInterval*2+1000))
 }
@@ -166,13 +167,11 @@ func TestPool_Initialize(t *testing.T) {
 	conf := conecta.NewConfig().WithInitialize(2)
 	assert.NotNil(t, conf)
 
+	// 未配置 newFunc 且 initialize>0 时，初始化失败并返回 newFunc 未配置错误
+	// When newFunc is not configured and initialize>0, initialization fails with the "newFunc not configured" error
 	p, err := conecta.New(queue, conf)
-	assert.NotNil(t, p)
-	assert.Nil(t, err)
-
-	defer p.Stop()
-
-	assert.Equal(t, 2, p.Len())
+	assert.Nil(t, p)
+	assert.EqualError(t, err, "newFunc not configured")
 }
 
 func TestPool_InitializeWithNewFunc(t *testing.T) {
@@ -197,13 +196,17 @@ func TestPool_PutWithParallel(t *testing.T) {
 
 	defer p.Stop()
 
-	for i := 0; i < 100; i++ {
+	// 使用 WaitGroup 等待所有并发 Put 完成
+	// Use a WaitGroup to wait for all concurrent Puts to complete
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_ = p.Put("item1")
 		}()
 	}
-
-	time.Sleep(time.Second)
+	wg.Wait()
 
 	assert.Equal(t, 100, p.Len())
 }
@@ -216,28 +219,41 @@ func TestPool_GetWithParallel(t *testing.T) {
 
 	defer p.Stop()
 
-	for i := 0; i < 100; i++ {
+	// 使用 WaitGroup 等待所有并发 Put 完成
+	// Use a WaitGroup to wait for all concurrent Puts to complete
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_ = p.Put("item1")
 		}()
 	}
+	wg.Wait()
 
-	time.Sleep(time.Second)
-
-	for i := 0; i < 100; i++ {
+	// 使用 WaitGroup 等待所有并发 Get 完成
+	// Use a WaitGroup to wait for all concurrent Gets to complete
+	for range 100 {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_, _ = p.Get()
 		}()
 	}
-
-	time.Sleep(time.Second)
+	wg.Wait()
 
 	assert.Equal(t, 0, p.Len())
 }
 
 func TestPool_GetOrCreateWithParallel(t *testing.T) {
 	queue := wkq.NewQueue(nil)
-	conf := conecta.NewConfig().WithNewFunc(testNewFunc)
+	// 使用原子计数器统计 newFunc 的调用次数
+	// Use an atomic counter to track the number of newFunc invocations
+	var createCount int64
+	conf := conecta.NewConfig().WithNewFunc(func() (any, error) {
+		atomic.AddInt64(&createCount, 1)
+		return "success", nil
+	})
 	assert.NotNil(t, conf)
 
 	p, err := conecta.New(queue, conf)
@@ -246,14 +262,21 @@ func TestPool_GetOrCreateWithParallel(t *testing.T) {
 
 	defer p.Stop()
 
-	for i := 0; i < 20; i++ {
+	// 使用 WaitGroup 等待所有并发 GetOrCreate 完成
+	// Use a WaitGroup to wait for all concurrent GetOrCreate calls to complete
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_, _ = p.GetOrCreate()
 		}()
 	}
+	wg.Wait()
 
-	time.Sleep(time.Second)
-
+	// 空池下 20 个并发 GetOrCreate 各自创建一次，创建出的元素均被借出未归还
+	// 20 concurrent GetOrCreate calls on an empty pool each create once; created elements are all lent out and not returned
+	assert.Equal(t, int64(20), atomic.LoadInt64(&createCount))
 	assert.Equal(t, 0, p.Len())
 }
 
@@ -288,8 +311,10 @@ func TestPool_Put_NilItem(t *testing.T) {
 	defer p.Stop()
 
 	err = p.Put(nil)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, p.Len())
+	// Put(nil) 返回 ErrValueIsNil，且不入队
+	// Put(nil) returns ErrValueIsNil and nothing is enqueued
+	assert.Equal(t, conecta.ErrValueIsNil, err)
+	assert.Equal(t, 0, p.Len())
 }
 
 // TestPool_Get_EmptyPool 测试从空池中获取元素
@@ -302,7 +327,9 @@ func TestPool_Get_EmptyPool(t *testing.T) {
 
 	item, err := p.Get()
 	assert.Error(t, err)
-	assert.Equal(t, wkq.ErrQueueIsEmpty, err)
+	// 空池 Get 返回裸哨兵 ErrPoolEmpty（零分配热路径，不包装底层队列错误），errors.Is 对其直接成立
+	// Get on an empty pool returns the bare sentinel ErrPoolEmpty (zero-allocation hot path, no wrapping of the underlying queue error); errors.Is matches it directly
+	assert.True(t, errors.Is(err, conecta.ErrPoolEmpty))
 	assert.Nil(t, item)
 }
 
@@ -336,7 +363,7 @@ func TestPool_Put_AfterStop(t *testing.T) {
 	p.Stop()
 	err = p.Put("test")
 	assert.Error(t, err)
-	assert.Equal(t, conecta.ErrorQueueClosed, err)
+	assert.Equal(t, conecta.ErrQueueClosed, err)
 }
 
 // TestPool_Initialize_ZeroSize 测试初始化大小为0的情况
@@ -399,14 +426,23 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 	)
 
 	// 等待所有 goroutine 完成的 WaitGroup
+	// WaitGroup for waiting all goroutines to complete
 	var wg sync.WaitGroup
 	wg.Add(numProducers + numConsumers)
 
+	// 生产者专用 WaitGroup：精确同步生产完成时刻，替代固定 sleep 的竞态窗口
+	// Dedicated WaitGroup for producers: synchronize the exact moment production
+	// completes, replacing the racy fixed sleep
+	var producerWG sync.WaitGroup
+	producerWG.Add(numProducers)
+
 	// 启动生产者
-	for i := 0; i < numProducers; i++ {
+	// Start the producers
+	for i := range numProducers {
 		go func(producerID int) {
 			defer wg.Done()
-			for j := 0; j < itemsPerProducer; j++ {
+			defer producerWG.Done()
+			for j := range itemsPerProducer {
 				item := fmt.Sprintf("producer_%d_item_%d", producerID, j)
 				_ = p.Put(item)
 			}
@@ -414,17 +450,20 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 	}
 
 	// 用于记录消费的元素数量
+	// Counter for the number of consumed elements
 	var consumedCount int32
 
 	// 启动消费者
-	for i := 0; i < numConsumers; i++ {
+	// Start the consumers
+	for range numConsumers {
 		go func() {
 			defer wg.Done()
 			for {
 				_, err := p.Get()
 				if err != nil {
-					// 池已关闭（Stop 会先取消 context 再 shutdown queue），退出 goroutine 以避免泄漏
-					if errors.Is(err, conecta.ErrorQueueClosed) || errors.Is(err, context.Canceled) {
+					// 池已关闭，退出 goroutine 以避免泄漏
+					// Pool is closed, exit the goroutine to avoid leaking
+					if errors.Is(err, conecta.ErrQueueClosed) {
 						return
 					}
 					time.Sleep(time.Millisecond)
@@ -435,24 +474,31 @@ func TestPool_ConcurrentOperations(t *testing.T) {
 		}()
 	}
 
-	// 等待生产者完成
-	time.Sleep(time.Second)
+	// 等待生产者全部完成（精确同步，无固定 sleep 竞态窗口）
+	// Wait for all producers to complete (exact synchronization, no fixed-sleep race window)
+	producerWG.Wait()
 
-	// 确保总的生产数量正确
+	// 生产者完成后，所有元素最终必然被消费殆尽；用 Eventually 轮询等待该不变式成立
+	// After producers finish, every element must eventually be consumed; poll for
+	// this invariant with Eventually
 	totalProduced := numProducers * itemsPerProducer
-	currentLen := p.Len()
-	consumed := int(atomic.LoadInt32(&consumedCount))
+	assert.Eventually(t, func() bool {
+		return int(atomic.LoadInt32(&consumedCount)) == totalProduced
+	}, 5*time.Second, 10*time.Millisecond,
+		"Consumed count should reach total produced (%d)", totalProduced)
 
-	// 验证：已消费数量 + 当前队列中的数量 = 总生产数量
-	assert.Equal(t, totalProduced, consumed+currentLen,
-		"Total items (%d) should equal consumed items (%d) plus items in queue (%d)",
-		totalProduced, consumed, currentLen)
+	// 消费完毕后队列必然为空：总生产量全部出队后不再有新增
+	// The queue must be empty once everything is consumed: no new items after
+	// the total produced count has been fully dequeued
+	assert.Equal(t, 0, p.Len())
 
 	// 停止池，确保清理
+	// Stop the pool to ensure cleanup
 	p.Stop()
 	assert.Equal(t, 0, p.Len())
 
 	// 等待所有 goroutine 退出，确认无泄漏（race 超时时会暴露残留 goroutine）
+	// Wait for all goroutines to exit, confirming no leak (leftover goroutines surface as race timeouts)
 	wg.Wait()
 }
 
@@ -472,8 +518,9 @@ func TestPool_GetOrCreate_AfterStop(t *testing.T) {
 
 	item, err := p.GetOrCreate()
 	assert.Error(t, err)
-	// Stop 先取消 ctx，GetOrCreate 在 ctx 已取消时返回 context.Canceled
-	assert.Equal(t, context.Canceled, err)
+	// Stop 后 Get 统一返回 ErrQueueClosed，GetOrCreate 不会创建新元素
+	// After Stop, Get uniformly returns ErrQueueClosed and GetOrCreate does not create new elements
+	assert.Equal(t, conecta.ErrQueueClosed, err)
 	assert.Nil(t, item)
 	assert.Equal(t, int64(0), atomic.LoadInt64(&createCount), "newFunc should not be called after Stop()")
 }
@@ -504,11 +551,14 @@ func TestPool_Maintain_HealthyConnection(t *testing.T) {
 	err = p.Put("test-connection")
 	require.NoError(t, err)
 
-	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
-
-	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, int64(5), atomic.LoadInt64(&pingCount), "Ping should be called once")
+	// 验证连接被 ping 至少 5 次但没有被关闭；等待完全由 Eventually 承担
+	// （5s 窗口覆盖首个 300ms+ 扫描周期，无需固定 sleep），同时消除计时器粒度抖动
+	// Verify the connection is pinged at least 5 times but not closed; the wait is
+	// carried entirely by Eventually (the 5s window covers the first 300ms+ scan
+	// cycle, no fixed sleep needed), which also absorbs timer granularity jitter
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&pingCount) >= 5
+	}, 5*time.Second, 50*time.Millisecond, "Ping should be called at least 5 times for healthy connection")
 	assert.Equal(t, int64(0), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connection")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
 }
@@ -539,12 +589,17 @@ func TestPool_Maintain_UnhealthyConnection(t *testing.T) {
 	err = p.Put("test-connection")
 	require.NoError(t, err)
 
-	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
-
-	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, int64(3), atomic.LoadInt64(&pingCount), "Ping should be called once")
-	assert.Equal(t, int64(1), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connection")
+	// 验证连接被 ping 至少 3 次后被关闭；等待完全由 Eventually 承担
+	// （5s 窗口覆盖首个 300ms+ 扫描周期，无需固定 sleep）。closeCount 与第 3 次
+	// ping 存在先后顺序，须一并等待以避免微秒级竞态
+	// Verify the connection is pinged at least 3 times then closed; the wait is
+	// carried entirely by Eventually (the 5s window covers the first 300ms+ scan
+	// cycle, no fixed sleep needed). closeCount follows the 3rd ping and must be
+	// awaited together to avoid microsecond-level races
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&pingCount) >= 3 && atomic.LoadInt64(&closeCount) >= 1
+	}, 5*time.Second, 50*time.Millisecond, "Ping should be called at least 3 times and close once for unhealthy connection")
+	assert.Equal(t, int64(1), atomic.LoadInt64(&closeCount), "Close should be called once for unhealthy connection")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool")
 }
 
@@ -573,11 +628,14 @@ func TestPool_Maintain_RetryMechanism(t *testing.T) {
 	err = p.Put("test-connection")
 	require.NoError(t, err)
 
-	// 等待足够的时间让重试机制完成
-	time.Sleep(time.Millisecond * 1050) // 300ms * 3 + 150ms buffer
-
-	// 验证重试机制
-	assert.Equal(t, int64(3), atomic.LoadInt64(&pingAttempts), "Ping should be attempted 3 times")
+	// 验证重试机制；等待完全由 Eventually 承担（5s 窗口覆盖首个 300ms+ 扫描
+	// 周期，无需固定 sleep），同时消除计时器粒度抖动
+	// Verify the retry mechanism; the wait is carried entirely by Eventually
+	// (the 5s window covers the first 300ms+ scan cycle, no fixed sleep needed),
+	// which also absorbs timer granularity jitter
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&pingAttempts) >= 3
+	}, 5*time.Second, 50*time.Millisecond, "Ping should be attempted at least 3 times")
 	assert.Equal(t, 1, p.Len(), "Connection should remain in pool after successful retry")
 }
 
@@ -609,11 +667,14 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	err = p.Put("test-connection-2")
 	require.NoError(t, err)
 
-	// 等待维护周期执行
-	time.Sleep(time.Millisecond * 1650) // 300ms * 5 + 150ms buffer
-
-	// 验证连接被 ping 但没有被关闭
-	assert.Equal(t, int64(10), atomic.LoadInt64(&pingCount), "Ping should be called once for each connection")
+	// 验证两个连接各自被 ping 至少 5 次但没有被关闭；等待完全由 Eventually
+	// 承担（5s 窗口覆盖首个 300ms+ 扫描周期，无需固定 sleep），同时消除计时器粒度抖动
+	// Verify both connections are pinged at least 5 times each but not closed; the
+	// wait is carried entirely by Eventually (the 5s window covers the first 300ms+
+	// scan cycle, no fixed sleep needed), which also absorbs timer granularity jitter
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&pingCount) >= 10
+	}, 5*time.Second, 50*time.Millisecond, "Ping should be called at least 10 times for two healthy connections")
 	assert.Equal(t, int64(0), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connections")
 	assert.Equal(t, 2, p.Len(), "Connections should remain in pool")
 }

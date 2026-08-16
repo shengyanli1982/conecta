@@ -18,7 +18,7 @@ A lightweight, generic connection pool manager for Go. Conecta wraps any object 
 - **Pluggable queue** — BYO queue implementation; ships with `workqueue` integration
 - **Lifecycle callbacks** — observe ping success/failure/close events for metrics and logging
 
-**Requires Go 1.21+.**
+**Requires Go 1.23+.**
 
 ## Install
 
@@ -76,17 +76,21 @@ Every pooled object is wrapped in an `Element` (from `sync.Pool`). The backgroun
 
 ### Core Methods
 
-| Method          | Description                                             |
-| --------------- | ------------------------------------------------------- |
-| `New(q, conf)`  | Create a pool with the given queue and config           |
-| `Get()`         | Borrow an element; returns error if pool is empty       |
-| `GetOrCreate()` | Borrow an element, or call `NewFunc` if pool is empty   |
-| `Put(data)`     | Return an element to the pool                           |
-| `Stop()`        | Graceful shutdown: close all elements, stop supervision |
-| `Len()`         | Current number of pooled elements                       |
-| `Cleanup()`     | Destroy all elements immediately and drain the queue    |
+| Method          | Description                                                               |
+| --------------- | ------------------------------------------------------------------------- |
+| `New(q, conf)`  | Create a pool with the given queue and config                             |
+| `Get()`         | Borrow an element; returns `ErrPoolEmpty` if the pool is empty            |
+| `GetOrCreate()` | Borrow an element, or call `NewFunc` if pool is empty                     |
+| `Put(data)`     | Return an element to the pool; returns `ErrValueIsNil` if data is nil     |
+| `Stop()`        | Graceful shutdown: close all elements, stop supervision                   |
+| `Len()`         | Current number of pooled elements                                         |
+| `Cleanup()`     | Destroy all elements immediately and drain the queue                      |
 
-> After `Stop()`, all pool methods return `ErrorQueueClosed`.
+**Error contract:**
+
+- After `Stop()`, all pool methods return `ErrQueueClosed`.
+- `Get()` on an empty pool returns the pre-allocated sentinel `ErrPoolEmpty` (zero-allocation hot path); use `errors.Is(err, conecta.ErrPoolEmpty)` to detect it.
+- `Put(nil)` returns `ErrValueIsNil`.
 
 ### Configuration
 
@@ -100,7 +104,7 @@ Build a `Config` with the fluent builder API:
 | `WithCallback(c)`       | Lifecycle observer (`Callback` interface)   | empty callback     |
 | `WithInitialize(n)`     | Pre-create `n` elements at startup          | `0`                |
 | `WithPingMaxRetries(n)` | Ping failures before destroying an element  | `3`                |
-| `WithScanInterval(ms)`  | Supervision scan interval in milliseconds   | `10000`            |
+| `WithScanInterval(ms)`  | Supervision scan interval in milliseconds (values below `300` are clamped to `300`) | `10000`            |
 
 > **Note:** For long-running services, set `ScanInterval >= 10000ms`. Each scan pings every element, so a large pool with very short intervals creates unnecessary load.
 
@@ -110,12 +114,12 @@ Conecta uses an external queue to store elements. Provide any implementation tha
 
 ```go
 type Queue = interface {
-    Put(value interface{}) error
-    Get() (interface{}, error)
-    Done(value interface{})
+    Put(value any) error
+    Get() (any, error)
+    Done(value any)
     Len() int
-    Values() []interface{}
-    Range(fn func(interface{}) bool)
+    Values() []any
+    Range(fn func(any) bool)
     Shutdown()
     IsClosed() bool
 }
@@ -135,18 +139,25 @@ type Callback interface {
 }
 ```
 
+### Ownership & Lifecycle Semantics
+
+- **`Put` transfers ownership** — never `Put` the same value twice; it could be lent out to two callers concurrently and closed twice.
+- **`Len()` may count tombstones** — elements destroyed by supervision stay in the queue (and in `Len()`) until a later `Get()` reclaims them.
+- **Values lent out at `Stop()` or `Cleanup()` are not closed by the pool** — if `Stop()` or a standalone `Cleanup()` runs while a value is lent out, closing it is the borrower's responsibility.
+- **User hooks run in the supervise goroutine** — `pingFunc`, `closeFunc`, and `Callback` methods must return quickly, and `pingFunc` must enforce its own timeout. Never call `Stop()` from inside these hooks: `Stop()` waits for the supervise goroutine to exit, so it would self-deadlock. Do not call back into the pool from `closeFunc`/`OnClose` either (the queue lock is held during `Cleanup`).
+
 ## Performance
 
-Optimized with `sync.Pool` wrapper reuse and mutex-free access on the hot path. Benchmarks on Apple M1 Max:
+Optimized with `sync.Pool` wrapper reuse and mutex-free access on the hot path. Benchmarks on Windows / 12th Gen Intel i5-12400F:
 
-| Benchmark           |  Time/op | Allocs/op | Notes                             |
-| ------------------- | -------: | --------: | --------------------------------- |
-| `Get`               | ~13.9 ns |   0 alloc | Pool warmup complete              |
-| `Put`               |  ~213 ns |   2 alloc | Queue node + Element wrapper      |
-| `GetAndPut`         |   ~49 ns |   0 alloc | Round-trip amortizes wrapper cost |
-| `GetOrCreate`       | ~17.8 ns |   0 alloc | Falls through to `NewFunc`        |
-| `ConcurrentMixed_8` |  ~359 ns |   1 alloc | 8 goroutines, 50% get + 50% put   |
-| `Supervise_10`      |  ~638 ns |   0 alloc | 100-element pool scan             |
+| Benchmark           |   Time/op | Allocs/op | Notes                                          |
+| ------------------- | --------: | --------: | ---------------------------------------------- |
+| `Get`               |  71.08 ns |   0 alloc | Steady-state borrow (Get + immediate put-back) |
+| `Put`               |  261.1 ns |   2 alloc | Queue node + Element wrapper                   |
+| `GetAndPut`         |  71.54 ns |   0 alloc | Round-trip amortizes wrapper cost              |
+| `GetOrCreate`       |  21.21 ns |   0 alloc | Falls through to `NewFunc`                     |
+| `ConcurrentMixed_8` |  372.7 ns |   1 alloc | 8 goroutines, 50% get + 50% put                |
+| `Supervise_10`      |  977.9 ns |   0 alloc | 10-element pool scan proxy                     |
 
 ## Examples
 

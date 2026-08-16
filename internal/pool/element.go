@@ -2,52 +2,52 @@ package pool
 
 import "sync"
 
-// Element 表示由 Group 和 Queue 使用的结构体，包含数据和值两个字段
-// Element represents a struct used by Group and Queue, containing two fields: data and value
+// Element 表示由 Group 和 Queue 使用的结构体，包含数据和重试计数两个字段
+// Element represents a struct used by Group and Queue, containing two fields: data and retries
 type Element struct {
-	// mu 保护 data 和 value 字段的并发访问
-	// mu protects data and value fields for concurrent access
+	// mu 保护 data 和 retries 字段的并发访问
+	// mu protects data and retries fields for concurrent access
 	mu sync.Mutex
 
 	// data 是 Element 的数据字段，可以存储任何类型的数据
 	// data is the data field of Element, which can store data of any type
-	data interface{}
+	data any
 
-	// value 是 Element 的值字段，存储一个 64 位的整数
-	// value is the value field of Element, storing a 64-bit integer
-	value int64
+	// retries 是 Element 的重试计数字段，存储重试计数，-1 表示已销毁
+	// retries is the retries field of Element, storing retry count, -1 marks destroyed
+	retries int64
 }
 
 // GetData 返回 Element 的数据字段
 // GetData returns the data field of Element
-func (e *Element) GetData() interface{} {
+func (e *Element) GetData() any {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.data
 }
 
-// GetValue 返回 Element 的值字段
-// GetValue returns the value field of Element
-func (e *Element) GetValue() int64 {
+// GetRetries 返回 Element 的重试计数字段
+// GetRetries returns the retries field of Element
+func (e *Element) GetRetries() int64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.value
+	return e.retries
 }
 
 // SetData 设置 Element 的数据字段
 // SetData sets the data field of Element
-func (e *Element) SetData(data interface{}) {
+func (e *Element) SetData(data any) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.data = data
 }
 
-// SetValue 设置 Element 的值字段
-// SetValue sets the value field of Element
-func (e *Element) SetValue(value int64) {
+// SetRetries 设置 Element 的重试计数字段
+// SetRetries sets the retries field of Element
+func (e *Element) SetRetries(retries int64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.value = value
+	e.retries = retries
 }
 
 // Lock 锁定 Element 的互斥锁
@@ -62,37 +62,37 @@ func (e *Element) Unlock() {
 	e.mu.Unlock()
 }
 
-// GetDataNoLock 在不加锁的情况下返回 Element 的数据字段，调用方必须已持有 mu 锁
-// GetDataNoLock returns the data field of Element without acquiring the lock, caller must hold mu
-func (e *Element) GetDataNoLock() interface{} {
+// GetDataNoLock 在不加锁的情况下返回 Element 的数据字段，调用方必须已持有 mu 锁，或对尚未发布（未入队）的 Element 拥有排他所有权
+// GetDataNoLock returns the data field of Element without acquiring the lock, caller must hold mu, or exclusively own the element before it is published (enqueued)
+func (e *Element) GetDataNoLock() any {
 	return e.data
 }
 
-// GetValueNoLock 在不加锁的情况下返回 Element 的值字段，调用方必须已持有 mu 锁
-// GetValueNoLock returns the value field of Element without acquiring the lock, caller must hold mu
-func (e *Element) GetValueNoLock() int64 {
-	return e.value
+// GetRetriesNoLock 在不加锁的情况下返回 Element 的重试计数字段，调用方必须已持有 mu 锁，或对尚未发布（未入队）的 Element 拥有排他所有权
+// GetRetriesNoLock returns the retries field of Element without acquiring the lock, caller must hold mu, or exclusively own the element before it is published (enqueued)
+func (e *Element) GetRetriesNoLock() int64 {
+	return e.retries
 }
 
-// SetDataNoLock 在不加锁的情况下设置 Element 的数据字段，调用方必须已持有 mu 锁
-// SetDataNoLock sets the data field of Element without acquiring the lock, caller must hold mu
-func (e *Element) SetDataNoLock(data interface{}) {
+// SetDataNoLock 在不加锁的情况下设置 Element 的数据字段，调用方必须已持有 mu 锁，或对尚未发布（未入队）的 Element 拥有排他所有权
+// SetDataNoLock sets the data field of Element without acquiring the lock, caller must hold mu, or exclusively own the element before it is published (enqueued)
+func (e *Element) SetDataNoLock(data any) {
 	e.data = data
 }
 
-// SetValueNoLock 在不加锁的情况下设置 Element 的值字段，调用方必须已持有 mu 锁
-// SetValueNoLock sets the value field of Element without acquiring the lock, caller must hold mu
-func (e *Element) SetValueNoLock(value int64) {
-	e.value = value
+// SetRetriesNoLock 在不加锁的情况下设置 Element 的重试计数字段，调用方必须已持有 mu 锁，或对尚未发布（未入队）的 Element 拥有排他所有权
+// SetRetriesNoLock sets the retries field of Element without acquiring the lock, caller must hold mu, or exclusively own the element before it is published (enqueued)
+func (e *Element) SetRetriesNoLock(retries int64) {
+	e.retries = retries
 }
 
-// Reset 重置 Element 的数据和值字段，将数据字段设置为 nil，将值字段设置为 0
-// Reset resets the data and value fields of Element, setting the data field to nil and the value field to 0
+// Reset 重置 Element 的数据和重试计数字段，将数据字段设置为 nil，将重试计数字段设置为 0
+// Reset resets the data and retries fields of Element, setting the data field to nil and the retries field to 0
 func (e *Element) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.data = nil
-	e.value = 0
+	e.retries = 0
 }
 
 // ElementPool 表示一个对象池，用于存储和管理 Element 对象
@@ -112,7 +112,7 @@ func NewElementPool() *ElementPool {
 		pool: &sync.Pool{
 			// New 返回一个新的 Element 对象
 			// New returns a new Element object
-			New: func() interface{} {
+			New: func() any {
 				return &Element{}
 			},
 		},
@@ -141,6 +141,8 @@ func (p *ElementPool) Put(e *Element) {
 	}
 }
 
+// PutRaw 将一个 Element 对象放入对象池但跳过 Reset，调用方必须保证元素状态合法（字段已在元素锁内清理完毕）
+// PutRaw puts an Element object into the object pool but skips Reset; the caller must guarantee the element state is valid (fields already cleared under the element lock)
 func (p *ElementPool) PutRaw(e *Element) {
 	if e != nil {
 		p.pool.Put(e)

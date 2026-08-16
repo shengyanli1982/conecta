@@ -45,15 +45,15 @@ type Callback = interface {
 type Queue = interface {
 	// Put 方法用于将元素放入队列。
 	// The Put method is used to put an element into the queue.
-	Put(value interface{}) error
+	Put(value any) error
 
 	// Get 方法用于从队列中获取元素。
 	// The Get method is used to get an element from the queue.
-	Get() (value interface{}, err error)
+	Get() (value any, err error)
 
 	// Done 方法用于标记元素处理完成。
 	// The Done method is used to mark the element as done.
-	Done(value interface{})
+	Done(value any)
 
 	// Len 方法用于获取队列的长度。
 	// The Len method is used to get the length of the queue.
@@ -61,11 +61,11 @@ type Queue = interface {
 
 	// Values 方法用于获取队列中的所有元素。
 	// The Values method is used to get all the elements in the queue.
-	Values() []interface{}
+	Values() []any
 
 	// Range 方法用于遍历队列中的所有元素。
 	// The Range method is used to traverse all elements in the queue.
-	Range(fn func(value interface{}) bool)
+	Range(fn func(value any) bool)
 
 	// Shutdown 方法用于关闭队列。
 	// The Shutdown method is used to shut down the queue.

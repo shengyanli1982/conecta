@@ -1,0 +1,6 @@
+*.exe
+*.out
+*.prof
+.serena/
+nul
+test.test*

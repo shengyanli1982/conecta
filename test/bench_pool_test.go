@@ -44,23 +44,26 @@ func newBenchPool() *conecta.Pool {
 
 // fillPool inserts n "conn" string elements into the pool.
 func fillPool(p *conecta.Pool, n int) {
-	for i := 0; i < n; i++ {
+	for range n {
 		_ = p.Put("conn")
 	}
 }
 
 // ----------------------------------------------------------------------------
-// a) BenchmarkPool_Get — single-threaded Get throughput
+// a) BenchmarkPool_Get — single-threaded steady-state borrow throughput
 //
-// Pre-fills the pool with 1000 elements; each Get is immediately followed by
-// a Put-back to maintain pool capacity throughout the run.
+// Steady-state borrow measurement: the pool is pre-filled with 1000 elements,
+// and each Get is immediately followed by a Put-back of the same value, so
+// the pool capacity stays constant throughout the run and no iteration ever
+// degrades into the empty-pool error path. For the pure Get-side cost of the
+// borrow-and-return round trip, refer to the difference against GetAndPut.
 // ----------------------------------------------------------------------------
 
 func BenchmarkPool_Get(b *testing.B) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	const fillSize = 1 << 20
+	const fillSize = 1000
 	p := newBenchPool()
 	defer p.Stop()
 	fillPool(p, fillSize)
@@ -68,8 +71,11 @@ func BenchmarkPool_Get(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		_, _ = p.Get()
+	for range b.N {
+		v, _ := p.Get()
+		if v != nil {
+			_ = p.Put(v)
+		}
 	}
 }
 
@@ -87,7 +93,7 @@ func BenchmarkPool_Put(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = p.Put("conn")
 	}
 }
@@ -110,7 +116,7 @@ func BenchmarkPool_GetAndPut(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		v, _ := p.Get()
 		_ = v
 		_ = p.Put("conn")
@@ -144,7 +150,7 @@ func BenchmarkPool_GetOrCreate(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		v, _ := p.GetOrCreate()
 		_ = v
 	}
@@ -180,10 +186,10 @@ func BenchmarkPool_ConcurrentGet_8(b *testing.B) {
 
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
-	for w := 0; w < numWorkers; w++ {
+	for range numWorkers {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < runsPerWorker; j++ {
+			for range runsPerWorker {
 				v, _ := p.Get()
 				if v != nil {
 					_ = p.Put(v)
@@ -217,10 +223,10 @@ func BenchmarkPool_ConcurrentPut_8(b *testing.B) {
 
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
-	for w := 0; w < numWorkers; w++ {
+	for range numWorkers {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < runsPerWorker; j++ {
+			for range runsPerWorker {
 				_ = p.Put("conn")
 			}
 		}()
@@ -273,10 +279,10 @@ func benchmarkConcurrentMixed(b *testing.B, numWorkers int) {
 
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
-	for w := 0; w < numWorkers; w++ {
+	for range numWorkers {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < runsPerWorker; j++ {
+			for j := range runsPerWorker {
 				if j%2 == 0 {
 					// 50% Get (with Put-back to keep pool stocked)
 					v, _ := p.Get()
@@ -311,7 +317,7 @@ func BenchmarkPool_Len(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = p.Len()
 	}
 }
@@ -321,7 +327,7 @@ func BenchmarkPool_Len(b *testing.B) {
 //
 // Because conecta/internal/pool is not importable from external test modules,
 // this benchmark faithfully replicates the ElementPool semantics: a sync.Pool
-// storing *Element wrappers whose Reset clears data/value fields under a mutex
+// storing *Element wrappers whose Reset clears data/retries fields under a mutex
 // before returning the wrapper to the pool.
 //
 // Real ElementPool code path being benchmarked:
@@ -329,18 +335,19 @@ func BenchmarkPool_Len(b *testing.B) {
 //   Put: if e != nil { e.Reset(); pool.Put(e) }
 // ----------------------------------------------------------------------------
 
-// benchElement mirrors internal/pool.Element layout.
+// benchElement mirrors internal/pool.Element layout: a mutex guarding the
+// data and retries fields.
 type benchElement struct {
-	mu    sync.Mutex
-	data  any
-	value int64
+	mu      sync.Mutex
+	data    any
+	retries int64
 }
 
 // reset mirrors (*pool.Element).Reset(): lock, clear fields, unlock.
 func (e *benchElement) reset() {
 	e.mu.Lock()
 	e.data = nil
-	e.value = 0
+	e.retries = 0
 	e.mu.Unlock()
 }
 
@@ -357,7 +364,7 @@ func BenchmarkElementPool_GetPut(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		e := sp.Get().(*benchElement)
 		e.reset()
 		sp.Put(e)
@@ -376,10 +383,13 @@ func BenchmarkElementPool_GetPut(b *testing.B) {
 // real supervise() calls from interfering with the simulated measurement.
 //
 // This proxy benchmark closely mirrors the actual supervise() workload:
-//   - Real:   queue.Range(func(elem) { elem.Lock(); ping(elem); elem.Unlock() })
-//   - Proxy:  for j:=0..N: { v=Get(); "ping"(v); Put(v) }
+//   - Real:   for elem := range queue.Values() { elem.Lock(); ping; claim; elem.Unlock() }
+//   - Proxy:  collect all elements via Get with a "ping" each, then return all via Put
 //
-// Both paths perform N element accesses with lock-equivalent synchronisation.
+// Both paths visit all N elements exactly once behind per-element
+// synchronisation: the real path walks a short-lock Values() snapshot guarded
+// by element mutexes (claiming exhausted elements), while the proxy path uses
+// Get/Put as lock-equivalent queue operations.
 // ----------------------------------------------------------------------------
 
 func BenchmarkSupervise_10(b *testing.B) {
@@ -399,10 +409,12 @@ func BenchmarkSupervise_10(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		// Phase 1: "Range" — retrieve all elements (analogous to queue.Range).
+	for range b.N {
+		// Phase 1: retrieve all elements via Get — mirrors the Values() snapshot
+		// traversal of the real implementation (proxy semantics: the Get sequence
+		// simulates the snapshot walk).
 		elements = elements[:0]
-		for j := 0; j < numElements; j++ {
+		for range numElements {
 			v, err := p.Get()
 			if err != nil {
 				break
@@ -444,7 +456,7 @@ func BenchmarkSupervise_10_Real(b *testing.B) {
 		WithNewFunc(benchNewFunc).
 		WithPingFunc(countingPingFunc).
 		WithCloseFunc(benchCloseFunc).
-		WithScanInterval(300) // minimum allowed by isConfigValid
+		WithScanInterval(300) // minimum allowed by normalizeConfig
 
 	p, err := conecta.New(queue, conf)
 	if err != nil {
@@ -459,7 +471,7 @@ func BenchmarkSupervise_10_Real(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		before := atomic.LoadInt64(&pingCount)
 		target := before + int64(numElements)
 		// Spin-wait with a small sleep until all 10 elements have been pinged.

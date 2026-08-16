@@ -327,9 +327,17 @@ func (c *TCPClient) Send(msg []byte) bool {
 	// Create a buffer to store the read data
 	buf := make([]byte, 1024)
 
+	// 在 Read 前设置读取超时，避免无限阻塞
+	// Set a read deadline before Read to avoid blocking indefinitely
+	_ = c.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
 	// 使用 Read 方法读取服务器的响应
 	// Use the Read method to read the server's response
 	_, err = c.conn.Read(buf)
+
+	// 在 Read 完成后清除读取超时
+	// Clear the read deadline after Read completes
+	_ = c.conn.SetReadDeadline(time.Time{})
 
 	// 检查是否在读取响应时出现错误
 	// Check if there was an error while reading the response
