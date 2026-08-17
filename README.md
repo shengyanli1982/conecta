@@ -81,7 +81,7 @@ Every pooled object is wrapped in an `Element` (from `sync.Pool`). The backgroun
 | `New(q, conf)`  | Create a pool with the given queue and config                             |
 | `Get()`         | Borrow an element; returns `ErrPoolEmpty` if the pool is empty            |
 | `GetOrCreate()` | Borrow an element, or call `NewFunc` if pool is empty                     |
-| `Put(data)`     | Return an element to the pool; returns `ErrValueIsNil` if data is nil     |
+| `Put(data)`     | Return an element to the pool; returns `ErrValueIsNil` if data is nil, `ErrPoolFull` when the pool is at maximum capacity |
 | `Stop()`        | Graceful shutdown: close all elements, stop supervision                   |
 | `Len()`         | Current number of pooled elements                                         |
 | `Cleanup()`     | Destroy all elements immediately and drain the queue                      |
@@ -91,6 +91,7 @@ Every pooled object is wrapped in an `Element` (from `sync.Pool`). The backgroun
 - After `Stop()`, all pool methods return `ErrQueueClosed`.
 - `Get()` on an empty pool returns the pre-allocated sentinel `ErrPoolEmpty` (zero-allocation hot path); use `errors.Is(err, conecta.ErrPoolEmpty)` to detect it.
 - `Put(nil)` returns `ErrValueIsNil`.
+- `Put(data)` returns the pre-allocated sentinel `ErrPoolFull` when the pool is at maximum capacity. Ownership never transfers on a failed `Put` — the caller keeps responsibility for the value.
 
 ### Configuration
 
@@ -103,6 +104,7 @@ Build a `Config` with the fluent builder API:
 | `WithCloseFunc(f)`      | Cleanup: `func(any) error`                  | `DefaultCloseFunc` |
 | `WithCallback(c)`       | Lifecycle observer (`Callback` interface)   | empty callback     |
 | `WithInitialize(n)`     | Pre-create `n` elements at startup          | `0`                |
+| `WithMaxSize(n)`        | Maximum number of elements the pool can hold; `Put` returns `ErrPoolFull` when full (values <= 0 fall back to the default) | `1024`             |
 | `WithPingMaxRetries(n)` | Ping failures before destroying an element  | `3`                |
 | `WithScanInterval(ms)`  | Supervision scan interval in milliseconds (values below `300` are clamped to `300`) | `10000`            |
 
@@ -143,6 +145,7 @@ type Callback interface {
 
 - **`Put` transfers ownership** — never `Put` the same value twice; it could be lent out to two callers concurrently and closed twice.
 - **`Len()` may count tombstones** — elements destroyed by supervision stay in the queue (and in `Len()`) until a later `Get()` reclaims them.
+- **The max size bounds how many elements the pool holds** — tombstones (elements destroyed by supervision but not yet reclaimed by a `Get()`) keep occupying capacity until reclaimed; on-demand creation by `GetOrCreate()` is not constrained by the max size.
 - **Values lent out at `Stop()` or `Cleanup()` are not closed by the pool** — if `Stop()` or a standalone `Cleanup()` runs while a value is lent out, closing it is the borrower's responsibility.
 - **User hooks run in the supervise goroutine** — `pingFunc`, `closeFunc`, and `Callback` methods must return quickly, and `pingFunc` must enforce its own timeout. Never call `Stop()` from inside these hooks: `Stop()` waits for the supervise goroutine to exit, so it would self-deadlock. Do not call back into the pool from `closeFunc`/`OnClose` either (the queue lock is held during `Cleanup`).
 
@@ -152,12 +155,12 @@ Optimized with `sync.Pool` wrapper reuse and mutex-free access on the hot path. 
 
 | Benchmark           |   Time/op | Allocs/op | Notes                                          |
 | ------------------- | --------: | --------: | ---------------------------------------------- |
-| `Get`               |  71.08 ns |   0 alloc | Steady-state borrow (Get + immediate put-back) |
-| `Put`               |  261.1 ns |   2 alloc | Queue node + Element wrapper                   |
-| `GetAndPut`         |  71.54 ns |   0 alloc | Round-trip amortizes wrapper cost              |
-| `GetOrCreate`       |  21.21 ns |   0 alloc | Falls through to `NewFunc`                     |
-| `ConcurrentMixed_8` |  372.7 ns |   1 alloc | 8 goroutines, 50% get + 50% put                |
-| `Supervise_10`      |  977.9 ns |   0 alloc | 10-element pool scan proxy                     |
+| `Get`               |  83.03 ns |   0 alloc | Steady-state borrow (Get + immediate put-back) |
+| `Put`               |  277.8 ns |   2 alloc | Queue node + Element wrapper                   |
+| `GetAndPut`         |  82.43 ns |   0 alloc | Round-trip amortizes wrapper cost              |
+| `GetOrCreate`       |  20.65 ns |   0 alloc | Falls through to `NewFunc`                     |
+| `ConcurrentMixed_8` |  380.0 ns |   1 alloc | 8 goroutines, 50% get + 50% put                |
+| `Supervise_10`      |   1080 ns |   0 alloc | 10-element pool scan proxy                     |
 
 ## Examples
 

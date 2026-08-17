@@ -25,16 +25,31 @@ func benchPingFunc(_ any, _ int) bool { return true }
 // benchCloseFunc is a no-op close function.
 func benchCloseFunc(_ any) error { return nil }
 
-// newBenchPool creates a pool configured for benchmarking.
+// newBenchPool 创建默认容量上限（conecta.DefaultMaxSize）的基准池，
+// 是 newBenchPoolWithMaxSize 的默认容量版本（委托实现，行为完全等价）。
+// scanInterval=10000ms 使后台监控 goroutine 保持近似休眠，避免干扰测量精度。
+// newBenchPool creates a benchmark pool with the default capacity cap
+// (conecta.DefaultMaxSize); it is the default-capacity variant of
+// newBenchPoolWithMaxSize (implemented by delegation, behaviorally identical).
 // scanInterval=10000ms keeps the background monitor goroutine effectively
 // dormant, preventing interference with measurement accuracy.
 func newBenchPool() *conecta.Pool {
+	return newBenchPoolWithMaxSize(conecta.DefaultMaxSize)
+}
+
+// newBenchPoolWithMaxSize 创建一个显式设置容量上限的基准池，
+// 供池规模随 b.N 增长（或预填充量超过默认上限）的基准使用。
+// newBenchPoolWithMaxSize creates a benchmark pool with an explicit capacity
+// limit, for benchmarks whose pool grows with b.N (or whose pre-fill exceeds
+// the default cap).
+func newBenchPoolWithMaxSize(maxSize int) *conecta.Pool {
 	queue := wkq.NewQueue(nil)
 	conf := conecta.NewConfig().
 		WithNewFunc(benchNewFunc).
 		WithPingFunc(benchPingFunc).
 		WithCloseFunc(benchCloseFunc).
-		WithScanInterval(10000)
+		WithScanInterval(10000).
+		WithMaxSize(maxSize)
 	p, err := conecta.New(queue, conf)
 	if err != nil {
 		panic(err)
@@ -87,7 +102,13 @@ func BenchmarkPool_Put(b *testing.B) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	p := newBenchPool()
+	// 池随 b.N 无界增长：注入 b.N + 1024 的容量上限（统一公式余量，本基准无预填充），
+	// 避免默认 maxSize=1024 把超限迭代短路到 ErrPoolFull 拒绝路径，改变测量语义。
+	// The pool grows unbounded with b.N: inject a b.N + 1024 capacity cap
+	// (unified-formula margin; this benchmark has no pre-fill) so the default
+	// maxSize=1024 never short-circuits iterations onto the ErrPoolFull
+	// rejection path and changes the semantics.
+	p := newBenchPoolWithMaxSize(b.N + 1024)
 	defer p.Stop()
 
 	b.ResetTimer()
@@ -172,7 +193,14 @@ func BenchmarkPool_ConcurrentGet_8(b *testing.B) {
 		fillSize   = numWorkers * 1000 // 8000
 	)
 
-	p := newBenchPool()
+	// 预填充 8000 个元素超过默认 maxSize=1024：显式放宽容量上限为
+	// max(b.N+1024, fillSize)；max 保证低 b.N 的预热轮次也能容纳全部填充量，
+	// 避免填充被 ErrPoolFull 静默截断（正式测量轮次 b.N 远大于填充量时取 b.N+1024）。
+	// The 8000-element pre-fill exceeds the default maxSize=1024: widen the cap
+	// explicitly to max(b.N+1024, fillSize); max guarantees the fill fully fits
+	// even in warm-up rounds with a small b.N, so the fill is not silently
+	// truncated by ErrPoolFull (b.N+1024 dominates in measured rounds).
+	p := newBenchPoolWithMaxSize(max(b.N+1024, fillSize))
 	defer p.Stop()
 	fillPool(p, fillSize)
 
@@ -210,7 +238,13 @@ func BenchmarkPool_ConcurrentPut_8(b *testing.B) {
 
 	const numWorkers = 8
 
-	p := newBenchPool()
+	// 池随 b.N 无界增长：注入 b.N + 1024 的容量上限（统一公式余量，本基准无预填充），
+	// 避免默认 maxSize=1024 把超限迭代短路到 ErrPoolFull 拒绝路径，改变测量语义。
+	// The pool grows unbounded with b.N: inject a b.N + 1024 capacity cap
+	// (unified-formula margin; this benchmark has no pre-fill) so the default
+	// maxSize=1024 never short-circuits iterations onto the ErrPoolFull
+	// rejection path and changes the semantics.
+	p := newBenchPoolWithMaxSize(b.N + 1024)
 	defer p.Stop()
 
 	b.ResetTimer()
@@ -265,7 +299,14 @@ func benchmarkConcurrentMixed(b *testing.B, numWorkers int) {
 
 	const fillSize = 1000
 
-	p := newBenchPool()
+	// 预填充后池仍随 b.N 净增长（约半数迭代为纯 Put）：注入 b.N + 1024 的容量
+	// 上限（余量覆盖填充量），避免默认 maxSize=1024 把超限迭代短路到
+	// ErrPoolFull 拒绝路径，改变混合负载的测量语义。
+	// After the pre-fill the pool still grows with b.N (about half of the
+	// iterations are pure Puts): inject a b.N + 1024 capacity cap (margin covers
+	// the fill) so the default maxSize=1024 never short-circuits iterations onto
+	// the ErrPoolFull rejection path and changes the mixed-workload semantics.
+	p := newBenchPoolWithMaxSize(b.N + 1024)
 	defer p.Stop()
 	fillPool(p, fillSize)
 

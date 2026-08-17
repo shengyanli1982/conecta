@@ -678,3 +678,333 @@ func TestPool_Maintain_MultipleConnections(t *testing.T) {
 	assert.Equal(t, int64(0), atomic.LoadInt64(&closeCount), "Close should not be called for healthy connections")
 	assert.Equal(t, 2, p.Len(), "Connections should remain in pool")
 }
+
+// TestPool_MaxSize_Default 测试默认最大容量锚点：连续 Put 1024 个成功，第 1025 个返回 ErrPoolFull
+// TestPool_MaxSize_Default tests the default capacity anchor: 1024 Puts succeed and the 1025th returns ErrPoolFull
+func TestPool_MaxSize_Default(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	p, err := conecta.New(queue, nil)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 默认容量为 1024：前 1024 次 Put 全部成功（使用轻量 int 值）
+	// The default capacity is 1024: all of the first 1024 Puts succeed (using lightweight int values)
+	for i := range 1024 {
+		require.NoError(t, p.Put(i))
+	}
+
+	// 第 1025 次 Put 触发容量上限，返回预分配哨兵 ErrPoolFull
+	// The 1025th Put hits the capacity limit and returns the pre-allocated sentinel ErrPoolFull
+	err = p.Put(0)
+	assert.True(t, errors.Is(err, conecta.ErrPoolFull))
+	assert.Equal(t, 1024, p.Len())
+}
+
+// TestPool_MaxSize_WithMaxSize 测试 WithMaxSize 配置生效：容量满后 Put 返回 ErrPoolFull
+// TestPool_MaxSize_WithMaxSize tests the WithMaxSize setting takes effect: Put returns ErrPoolFull when full
+func TestPool_MaxSize_WithMaxSize(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	conf := conecta.NewConfig().WithMaxSize(2)
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	require.NoError(t, p.Put("item1"))
+	require.NoError(t, p.Put("item2"))
+
+	// 容量已满：第 3 次 Put 返回 ErrPoolFull，队列长度保持为 2
+	// Capacity is full: the 3rd Put returns ErrPoolFull and the queue length stays at 2
+	err = p.Put("item3")
+	assert.True(t, errors.Is(err, conecta.ErrPoolFull))
+	assert.Equal(t, 2, p.Len())
+}
+
+// TestPool_MaxSize_RecoveryAfterGet 测试容量恢复：借出元素释放容量后 Put 重新成功
+// TestPool_MaxSize_RecoveryAfterGet tests capacity recovery: after a Get frees capacity, Put succeeds again
+func TestPool_MaxSize_RecoveryAfterGet(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	conf := conecta.NewConfig().WithMaxSize(2)
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	require.NoError(t, p.Put("item1"))
+	require.NoError(t, p.Put("item2"))
+	assert.True(t, errors.Is(p.Put("item3"), conecta.ErrPoolFull))
+
+	// Get 借出 1 个元素，释放 1 单位容量
+	// Get borrows one element and frees one unit of capacity
+	data, err := p.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "item1", data)
+
+	// 容量恢复：Put 重新成功，池回到满容量状态
+	// Capacity recovered: Put succeeds again and the pool returns to full capacity
+	require.NoError(t, p.Put("item3"))
+	assert.Equal(t, 2, p.Len())
+}
+
+// TestPool_MaxSize_TombstoneOccupiesCapacity 测试 tombstone 占用容量：被销毁未回收的元素继续占容量直至 Get 回收
+// TestPool_MaxSize_TombstoneOccupiesCapacity tests tombstones occupy capacity: destroyed but unreclaimed elements keep occupying capacity until Get reclaims them
+func TestPool_MaxSize_TombstoneOccupiesCapacity(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	var closeCount int64
+
+	conf := conecta.NewConfig().
+		WithMaxSize(2).
+		WithInitialize(2).
+		WithScanInterval(300).
+		WithPingMaxRetries(1).
+		WithNewFunc(func() (any, error) { return "conn", nil }).
+		WithPingFunc(func(any, int) bool { return false }).
+		WithCloseFunc(func(any) error {
+			atomic.AddInt64(&closeCount, 1)
+			return nil
+		})
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 等待 supervise 销毁两个元素（恒 false 的 pingFunc + 单次重试上限）
+	// Wait for supervise to destroy both elements (always-false pingFunc + retry limit of 1)
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt64(&closeCount) == 2
+	}, 5*time.Second, 50*time.Millisecond, "Both elements should be destroyed")
+
+	// tombstone 仍留在队列中占用容量
+	// Tombstones remain in the queue and still occupy capacity
+	assert.Equal(t, 2, p.Len())
+	assert.True(t, errors.Is(p.Put("intruder"), conecta.ErrPoolFull))
+
+	// 单次 Get 回收两个 tombstone 后返回 ErrPoolEmpty
+	// A single Get reclaims both tombstones and then returns ErrPoolEmpty
+	_, err = p.Get()
+	assert.True(t, errors.Is(err, conecta.ErrPoolEmpty))
+
+	// 容量已释放：Put 重新成功
+	// Capacity has been released: Put succeeds again
+	require.NoError(t, p.Put("fresh"))
+	assert.Equal(t, 1, p.Len())
+}
+
+// TestPool_MaxSize_Fallback 测试归一化回落：maxSize<=0 时回落为默认容量 1024
+// TestPool_MaxSize_Fallback tests normalization fallback: maxSize <= 0 falls back to the default capacity 1024
+func TestPool_MaxSize_Fallback(t *testing.T) {
+	for _, maxSize := range []int{0, -1} {
+		t.Run(fmt.Sprintf("maxSize=%d", maxSize), func(t *testing.T) {
+			queue := wkq.NewQueue(nil)
+			p, err := conecta.New(queue, conecta.NewConfig().WithMaxSize(maxSize))
+			require.NoError(t, err)
+			require.NotNil(t, p)
+			defer p.Stop()
+
+			// 行为与默认一致：1024 次成功，第 1025 次返回 ErrPoolFull
+			// Behaves like the default: 1024 successes, the 1025th returns ErrPoolFull
+			for i := range 1024 {
+				require.NoError(t, p.Put(i))
+			}
+			assert.True(t, errors.Is(p.Put(0), conecta.ErrPoolFull))
+		})
+	}
+}
+
+// TestPool_MaxSize_InitializeClamped 测试归一化顺序：initialize 钳制发生在 maxSize 回落之后
+// TestPool_MaxSize_InitializeClamped tests normalization order: the initialize clamp happens after the maxSize fallback
+func TestPool_MaxSize_InitializeClamped(t *testing.T) {
+	newFunc := func() (any, error) { return "conn", nil }
+
+	t.Run("initialize clamped to maxSize", func(t *testing.T) {
+		queue := wkq.NewQueue(nil)
+		conf := conecta.NewConfig().WithMaxSize(3).WithInitialize(5).WithNewFunc(newFunc)
+		assert.NotNil(t, conf)
+
+		p, err := conecta.New(queue, conf)
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		defer p.Stop()
+
+		// initialize(5) 被钳制到 maxSize(3)
+		// initialize(5) is clamped to maxSize(3)
+		assert.Equal(t, 3, p.Len())
+	})
+
+	t.Run("maxSize fallback before clamp", func(t *testing.T) {
+		queue := wkq.NewQueue(nil)
+		conf := conecta.NewConfig().WithMaxSize(0).WithInitialize(5).WithNewFunc(newFunc)
+		assert.NotNil(t, conf)
+
+		p, err := conecta.New(queue, conf)
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		defer p.Stop()
+
+		// maxSize(0) 先回落为 1024，initialize(5) 保持不变
+		// maxSize(0) falls back to 1024 first, so initialize(5) is kept as-is
+		assert.Equal(t, 5, p.Len())
+	})
+}
+
+// TestPool_MaxSize_NilBeatsFull 测试错误优先级：Put(nil) 返回 ErrValueIsNil 而非 ErrPoolFull
+// TestPool_MaxSize_NilBeatsFull tests error priority: Put(nil) returns ErrValueIsNil instead of ErrPoolFull
+func TestPool_MaxSize_NilBeatsFull(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	p, err := conecta.New(queue, conecta.NewConfig().WithMaxSize(1))
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 先填满池
+	// Fill the pool first
+	require.NoError(t, p.Put("item1"))
+
+	// nil 检查优先于容量检查
+	// The nil check takes priority over the capacity check
+	err = p.Put(nil)
+	assert.Equal(t, conecta.ErrValueIsNil, err)
+}
+
+// TestPool_MaxSize_StopBeatsFull 测试错误优先级：满池 Stop 后 Put 返回 ErrQueueClosed 而非 ErrPoolFull
+// TestPool_MaxSize_StopBeatsFull tests error priority: after Stop on a full pool, Put returns ErrQueueClosed instead of ErrPoolFull
+func TestPool_MaxSize_StopBeatsFull(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	p, err := conecta.New(queue, conecta.NewConfig().WithMaxSize(1))
+	require.NoError(t, err)
+	require.NotNil(t, p)
+
+	// 先填满池，再停止
+	// Fill the pool first, then stop it
+	require.NoError(t, p.Put("item1"))
+	p.Stop()
+
+	// 已停止检查优先于容量检查
+	// The stopped check takes priority over the capacity check
+	err = p.Put("item2")
+	assert.Equal(t, conecta.ErrQueueClosed, err)
+	assert.False(t, errors.Is(err, conecta.ErrPoolFull))
+}
+
+// TestPool_MaxSize_GetOrCreateUnlimited 测试 GetOrCreate 的按需创建不受 maxSize 约束
+// TestPool_MaxSize_GetOrCreateUnlimited tests that GetOrCreate's on-demand creation is not constrained by maxSize
+func TestPool_MaxSize_GetOrCreateUnlimited(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	var createCount int64
+
+	conf := conecta.NewConfig().
+		WithMaxSize(1).
+		WithInitialize(1).
+		WithNewFunc(func() (any, error) {
+			atomic.AddInt64(&createCount, 1)
+			return "created", nil
+		})
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 初始化阶段 newFunc 已被调用一次（创建唯一的初始化元素）
+	// newFunc has already been called once during initialization (creating the single initialized element)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&createCount))
+
+	// 首次 GetOrCreate 借出已初始化元素，不再调用 newFunc
+	// The first GetOrCreate borrows the initialized element without calling newFunc
+	data, err := p.GetOrCreate()
+	require.NoError(t, err)
+	assert.Equal(t, "created", data)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&createCount))
+	assert.Equal(t, 0, p.Len())
+
+	// 池空时 GetOrCreate 按需创建成功，不受 maxSize=1 约束
+	// On an empty pool, GetOrCreate creates on demand successfully, unconstrained by maxSize=1
+	data, err = p.GetOrCreate()
+	require.NoError(t, err)
+	assert.Equal(t, "created", data)
+	assert.Equal(t, int64(2), atomic.LoadInt64(&createCount))
+	assert.Equal(t, 0, p.Len())
+}
+
+// TestPool_MaxSize_ConcurrentHardLimit 测试并发硬上限：CAS 预留语义保证成功数恰好等于 maxSize
+// TestPool_MaxSize_ConcurrentHardLimit tests the concurrent hard limit: CAS reservation guarantees the success count equals exactly maxSize
+func TestPool_MaxSize_ConcurrentHardLimit(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	p, err := conecta.New(queue, conecta.NewConfig().WithMaxSize(50))
+	require.NoError(t, err)
+	require.NotNil(t, p)
+	defer p.Stop()
+
+	// 8 个 goroutine 各 Put 20 次，共 160 次并发 Put
+	// 8 goroutines each Put 20 times, 160 concurrent Puts in total
+	var wg sync.WaitGroup
+	var success, full, other int64
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				err := p.Put("conn")
+				if err == nil {
+					atomic.AddInt64(&success, 1)
+				} else if errors.Is(err, conecta.ErrPoolFull) {
+					atomic.AddInt64(&full, 1)
+				} else {
+					atomic.AddInt64(&other, 1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// 成功数恰好为 50，其余 110 次全部为 ErrPoolFull，无其他错误
+	// Exactly 50 succeed; the other 110 all return ErrPoolFull with no other errors
+	assert.Equal(t, int64(50), atomic.LoadInt64(&success))
+	assert.Equal(t, int64(110), atomic.LoadInt64(&full))
+	assert.Equal(t, int64(0), atomic.LoadInt64(&other))
+	assert.Equal(t, 50, p.Len())
+}
+
+// TestPool_MaxSize_FullNoOwnershipTransfer 测试满池 Put 失败不转移所有权：被拒 value 不会被池关闭
+// TestPool_MaxSize_FullNoOwnershipTransfer tests a full-pool Put failure does not transfer ownership: the rejected value is not closed by the pool
+func TestPool_MaxSize_FullNoOwnershipTransfer(t *testing.T) {
+	queue := wkq.NewQueue(nil)
+	// closeFunc 记录器：记录所有被池关闭的 value
+	// closeFunc recorder: records every value closed by the pool
+	var mu sync.Mutex
+	var closed []string
+
+	conf := conecta.NewConfig().WithMaxSize(1).WithCloseFunc(func(v any) error {
+		mu.Lock()
+		closed = append(closed, v.(string))
+		mu.Unlock()
+		return nil
+	})
+	assert.NotNil(t, conf)
+
+	p, err := conecta.New(queue, conf)
+	require.NoError(t, err)
+	require.NotNil(t, p)
+
+	require.NoError(t, p.Put("resident"))
+	// 池满：Put 失败，所有权不转移
+	// Pool is full: Put fails and ownership is not transferred
+	assert.True(t, errors.Is(p.Put("intruder"), conecta.ErrPoolFull))
+
+	p.Stop()
+
+	// Stop 后只有成功入队的 resident 被关闭；intruder 未被池关闭（仍由调用者负责）
+	// After Stop only the successfully enqueued resident is closed; the intruder is not closed by the pool (still the caller's responsibility)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, closed, "resident")
+	assert.NotContains(t, closed, "intruder")
+}

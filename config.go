@@ -12,6 +12,10 @@ const (
 	// DefaultInitialize is the default number of elements to initialize
 	DefaultInitialize = 0
 
+	// DefaultMaxSize 是默认连接池最大容量
+	// DefaultMaxSize is the default maximum capacity of the pool
+	DefaultMaxSize = 1024
+
 	// DefaultMaxPingRetry 是默认的最大 ping 重试次数
 	// DefaultMaxPingRetry is the default maximum number of ping retries
 	DefaultMaxPingRetry = 3
@@ -52,6 +56,10 @@ type Config struct {
 	// Number of elements to initialize
 	initialize int
 
+	// 连接池最大容量（池内最多持有的元素数）
+	// Maximum capacity of the pool (maximum number of elements the pool can hold)
+	maxSize int
+
 	// 扫描全部对象实例间隔
 	// Interval to scan all object instances
 	scanInterval int
@@ -82,6 +90,10 @@ func NewConfig() *Config {
 		// 默认的初始化元素数量
 		// Default number of elements to initialize
 		initialize: DefaultInitialize,
+
+		// 默认的连接池最大容量
+		// Default maximum capacity of the pool
+		maxSize: DefaultMaxSize,
 
 		// 默认的最大重试次数
 		// Default maximum number of retries
@@ -126,6 +138,13 @@ func (c *Config) WithCallback(callback Callback) *Config {
 // WithInitialize is the method to set the number of elements to initialize
 func (c *Config) WithInitialize(init int) *Config {
 	c.initialize = init
+	return c
+}
+
+// WithMaxSize 是设置连接池最大容量的方法
+// WithMaxSize is the method to set the maximum capacity of the pool
+func (c *Config) WithMaxSize(maxSize int) *Config {
+	c.maxSize = maxSize
 	return c
 }
 
@@ -180,6 +199,18 @@ func normalizeConfig(conf *Config) *Config {
 		// If the maximum number of retries is less than or equal to 0 or greater than or equal to the maximum unsigned 16-bit integer, set it to the default maximum Ping retry count
 		if conf.maxRetries <= 0 || conf.maxRetries >= math.MaxUint16 {
 			conf.maxRetries = DefaultMaxPingRetry
+		}
+
+		// 如果最大容量小于等于0，回落到默认最大容量（必须先于 initialize 钳制执行）
+		// If the maximum capacity is less than or equal to 0, fall back to the default maximum capacity (must run before the initialize clamp)
+		if conf.maxSize <= 0 {
+			conf.maxSize = DefaultMaxSize
+		}
+
+		// 如果初始化元素数量超过最大容量，钳制到最大容量
+		// If the number of elements to initialize exceeds the maximum capacity, clamp it to the maximum capacity
+		if conf.initialize > conf.maxSize {
+			conf.initialize = conf.maxSize
 		}
 
 		// 如果扫描间隔小于扫描间隔下限，钳制到下限
