@@ -25,6 +25,10 @@ var (
 	// ErrPoolEmpty indicates the pool has no element available to borrow
 	ErrPoolEmpty = errors.New("pool is empty")
 
+	// ErrPoolFull 表示池已达到最大容量，无法再接收新元素
+	// ErrPoolFull indicates the pool has reached its maximum capacity and cannot accept new elements
+	ErrPoolFull = errors.New("pool is full")
+
 	// ErrValueIsNil 表示要放入池中的元素为 nil
 	// ErrValueIsNil indicates the element to be put into the pool is nil
 	ErrValueIsNil = errors.New("value is nil")
@@ -42,6 +46,7 @@ type Pool struct {
 	elementPool *pool.ElementPool  // Pool for element objects / 元素对象池
 	stopGate    sync.RWMutex       // Stop 门闩，防止 Stop 窗口期并发 Put 泄漏 / stop gate preventing concurrent Put leaks during Stop window
 	stopped     atomic.Bool        // 停止标记位，热路径免锁快速判定 / lock-free stop flag for hot paths
+	size        atomic.Int64       // 当前池内元素计数，镜像 queue.Len() 语义（含 tombstone）；无锁原子量，不参与 stopGate→queue.lock→element.mu 锁序 / current element count in the pool, mirroring queue.Len() semantics (including tombstones); lock-free atomic outside the stopGate→queue.lock→element.mu lock order
 }
 
 // New creates a new Pool instance with the given queue and configuration
@@ -112,6 +117,9 @@ func (p *Pool) initialize() error {
 			p.drainAndClose()
 			return err
 		}
+		// 入队成功：池内计数加一。免容量检查——normalizeConfig 已保证 initialize ≤ maxSize，且发生在 New 返回前无并发
+		// Enqueue succeeded: increment the pool count. Capacity check is exempt — normalizeConfig already guarantees initialize ≤ maxSize, and this runs before New returns with no concurrency
+		p.size.Add(1)
 	}
 
 	// All elements successfully enqueued; caller (Stop/Cleanup) is responsible for cleanup
@@ -128,6 +136,9 @@ func (p *Pool) drainAndClose() {
 			break
 		}
 		p.queue.Done(elem)
+		// 元素离队：池内计数减一
+		// The element left the queue: decrement the pool count
+		p.size.Add(-1)
 		wrapper := elem.(*pool.Element)
 		if v := wrapper.GetData(); v != nil {
 			_ = p.config.closeFunc(v)
@@ -185,6 +196,9 @@ func (p *Pool) Cleanup() {
 			break
 		}
 		p.queue.Done(element)
+		// 元素离队：池内计数减一
+		// The element left the queue: decrement the pool count
+		p.size.Add(-1)
 		wrapper := element.(*pool.Element)
 		// 关闭守卫：standalone Cleanup 期间并发 Put 进入的元素（阶段1 Range 之后入队）仍持有 data，
 		// 按认领模式关闭，避免被静默丢失关闭
@@ -236,6 +250,10 @@ func (p *Pool) Get() (any, error) {
 			return nil, ErrPoolEmpty
 		}
 		p.queue.Done(element)
+
+		// 元素离队即减容量：单点递减同时覆盖 tombstone 回收与借出两个分支
+		// Decrement on dequeue: this single point covers both the tombstone reclaim and the lend-out branches
+		p.size.Add(-1)
 
 		wrapper := element.(*pool.Element)
 		wrapper.Lock()
@@ -293,11 +311,27 @@ func (p *Pool) Put(data any) error {
 	if p.stopped.Load() || p.queue.IsClosed() {
 		return ErrQueueClosed
 	}
+
+	// CAS 预留一个容量槽位；池满时返回预分配哨兵 ErrPoolFull（零分配，容量检查位于 closed 检查之后）
+	// Reserve a capacity slot via CAS; return the pre-allocated sentinel ErrPoolFull when full (zero allocation, the capacity check runs after the closed check)
+	for {
+		cur := p.size.Load()
+		if cur >= int64(p.config.maxSize) {
+			return ErrPoolFull
+		}
+		if p.size.CompareAndSwap(cur, cur+1) {
+			break
+		}
+	}
+
 	element := p.elementPool.Get()
 	// wrapper 来自 elementPool（sync.Pool 返回的独占对象），在 queue.Put 发布前为当前 goroutine 独占，无需加锁
 	// The wrapper obtained from elementPool (an exclusive object returned by sync.Pool) is exclusively owned by this goroutine before being published via queue.Put, no lock needed
 	element.SetDataNoLock(data)
 	if err := p.queue.Put(element); err != nil {
+		// 入队失败：先释放已预留的容量槽位，再归还 wrapper
+		// Enqueue failed: release the reserved capacity slot first, then return the wrapper
+		p.size.Add(-1)
 		p.elementPool.Put(element)
 		// 队列被并发关闭时统一映射为 ErrQueueClosed；其余错误（如幂等队列的 AlreadyExist）原样透传
 		// Map a concurrently closed queue to ErrQueueClosed; pass through other errors (e.g. AlreadyExist from idempotent queues) as-is
