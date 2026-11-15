@@ -1,9 +1,12 @@
 package pool
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
-// Element 表示由 Group 和 Queue 使用的结构体，包含数据和重试计数两个字段
-// Element represents a struct used by Group and Queue, containing two fields: data and retries
+// Element 表示由 Group 和 Queue 使用的结构体，包含数据、重试计数与三个时间戳字段
+// Element represents a struct used by Group and Queue, containing the data, retry count and three timestamp fields
 type Element struct {
 	// mu 保护 data 和 retries 字段的并发访问
 	// mu protects data and retries fields for concurrent access
@@ -16,6 +19,27 @@ type Element struct {
 	// retries 是 Element 的重试计数字段，存储重试计数，-1 表示已销毁
 	// retries is the retries field of Element, storing retry count, -1 marks destroyed
 	retries int64
+
+	// createdAt 是元素（wrapper）本次入池时刻的 UnixNano 时间戳；atomic 读写，不受 mu 保护、不参与锁序。
+	// 用途声明（P2-5）：stampEnqueue 在每次入队时重打本戳，故当前数值恒等于 idleSince，且生产
+	// 判定路径无读取（GetCreatedAt 仅被复用清零契约测试调用）。受 wrapper/value 解耦限制——
+	// 借出时 wrapper 归还 sync.Pool、归还时 value 获得新 wrapper——本字段不追踪 value 跨借还
+	// 循环的首次创建时刻；保留作未来"对象年龄自首次创建起算"语义（需引入 value→wrapper 映射）
+	// 的预留原点字段
+	// createdAt is the UnixNano timestamp when the element (wrapper) entered the pool this time; read/written atomically, not guarded by mu and outside the lock order.
+	// Purpose note (P2-5): stampEnqueue re-stamps it on every enqueue, so its value currently always equals idleSince, and no production decision path reads it (GetCreatedAt is called only by the reuse-clearing contract tests). Limited by the wrapper/value decoupling — the wrapper goes back to sync.Pool on borrow and the value gets a fresh wrapper on return — this field does not track the value's first-creation moment across borrow/return cycles; it is kept as the reserved origin for a future "age counted from first creation" semantic (which would require a value→wrapper mapping)
+	createdAt atomic.Int64
+
+	// expireAt 是元素到期时刻的 UnixNano 时间戳，入池时一次性算好（含抖动）。0 表示未打时间戳：
+	// 年龄淘汰关闭时判定侧短路、该值不会被读取；年龄淘汰开启时等同于“立即到期”（fail-closed）
+	// expireAt is the UnixNano timestamp at which the element expires, computed once on enqueue (jitter included).
+	// 0 means unstamped: the check short-circuits and never reads it while age eviction is disabled, while with age
+	// eviction enabled it counts as "expired immediately" (fail-closed)
+	expireAt atomic.Int64
+
+	// idleSince 是元素最近一次入队（开始空闲）时刻的 UnixNano 时间戳；atomic 读写，不受 mu 保护、不参与锁序
+	// idleSince is the UnixNano timestamp of the element's most recent enqueue (idle start); read/written atomically, not guarded by mu and outside the lock order
+	idleSince atomic.Int64
 }
 
 // GetData 返回 Element 的数据字段
@@ -86,13 +110,56 @@ func (e *Element) SetRetriesNoLock(retries int64) {
 	e.retries = retries
 }
 
-// Reset 重置 Element 的数据和重试计数字段，将数据字段设置为 nil，将重试计数字段设置为 0
-// Reset resets the data and retries fields of Element, setting the data field to nil and the retries field to 0
+// GetCreatedAt 返回元素本次入池时刻的 UnixNano 时间戳；atomic 读取，不加 mu 锁，持有 mu 时调用同样安全
+// GetCreatedAt returns the UnixNano timestamp when the element entered the pool this time; atomic read without acquiring mu, safe to call while holding mu
+func (e *Element) GetCreatedAt() int64 {
+	return e.createdAt.Load()
+}
+
+// SetCreatedAt 设置元素本次入池时刻的 UnixNano 时间戳；atomic 写入，不加 mu 锁，持有 mu 时调用同样安全
+// SetCreatedAt sets the UnixNano timestamp when the element entered the pool this time; atomic write without acquiring mu, safe to call while holding mu
+func (e *Element) SetCreatedAt(createdAt int64) {
+	e.createdAt.Store(createdAt)
+}
+
+// GetExpireAt 返回元素到期时刻的 UnixNano 时间戳，0 表示未打时间戳（语义见字段说明）；atomic 读取，不加 mu 锁，持有 mu 时调用同样安全
+// GetExpireAt returns the UnixNano timestamp at which the element expires, 0 meaning unstamped (see the field doc for the semantics); atomic read without acquiring mu, safe to call while holding mu
+func (e *Element) GetExpireAt() int64 {
+	return e.expireAt.Load()
+}
+
+// SetExpireAt 设置元素到期时刻的 UnixNano 时间戳；atomic 写入，不加 mu 锁，持有 mu 时调用同样安全
+// SetExpireAt sets the UnixNano timestamp at which the element expires; atomic write without acquiring mu, safe to call while holding mu
+func (e *Element) SetExpireAt(expireAt int64) {
+	e.expireAt.Store(expireAt)
+}
+
+// GetIdleSince 返回元素最近一次入队时刻的 UnixNano 时间戳；atomic 读取，不加 mu 锁，持有 mu 时调用同样安全
+// GetIdleSince returns the UnixNano timestamp of the element's most recent enqueue; atomic read without acquiring mu, safe to call while holding mu
+func (e *Element) GetIdleSince() int64 {
+	return e.idleSince.Load()
+}
+
+// SetIdleSince 设置元素最近一次入队时刻的 UnixNano 时间戳；atomic 写入，不加 mu 锁，持有 mu 时调用同样安全
+// SetIdleSince sets the UnixNano timestamp of the element's most recent enqueue; atomic write without acquiring mu, safe to call while holding mu
+func (e *Element) SetIdleSince(idleSince int64) {
+	e.idleSince.Store(idleSince)
+}
+
+// Reset 重置 Element 的数据、重试计数与全部时间戳字段：数据置 nil、重试计数置 0、时间戳清零。
+// wrapper 经 ElementPool 复用，时间戳必须在此清零，杜绝陈旧到期时刻污染下一个使用者
+// Reset resets the data, retry count and all timestamp fields of Element: data to nil, retries to 0, timestamps to zero.
+// Wrappers are reused through ElementPool, so the timestamps must be cleared here to prevent a stale expiry from polluting the next user
 func (e *Element) Reset() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.data = nil
 	e.retries = 0
+	e.mu.Unlock()
+	// 时间戳走 atomic，不属于 mu 的保护范围
+	// Timestamps are atomic and outside mu's protection
+	e.createdAt.Store(0)
+	e.expireAt.Store(0)
+	e.idleSince.Store(0)
 }
 
 // ElementPool 表示一个对象池，用于存储和管理 Element 对象
@@ -141,10 +208,16 @@ func (p *ElementPool) Put(e *Element) {
 	}
 }
 
-// PutRaw 将一个 Element 对象放入对象池但跳过 Reset，调用方必须保证元素状态合法（字段已在元素锁内清理完毕）
-// PutRaw puts an Element object into the object pool but skips Reset; the caller must guarantee the element state is valid (fields already cleared under the element lock)
+// PutRaw 将一个 Element 对象放入对象池但跳过加锁的 Reset：data 与 retries 须由调用方在元素锁内清理完毕，
+// 而三个 atomic 时间戳在此统一清零（免锁、开销恒定），使陈旧时间戳泄漏在结构上不可能发生
+// PutRaw puts an Element object into the object pool but skips the locking Reset: data and retries must already
+// have been cleared by the caller under the element lock, while the three atomic timestamps are always cleared
+// here (lock-free, constant cost), making a stale-timestamp leak structurally impossible
 func (p *ElementPool) PutRaw(e *Element) {
 	if e != nil {
+		e.createdAt.Store(0)
+		e.expireAt.Store(0)
+		e.idleSince.Store(0)
 		p.pool.Put(e)
 	}
 }
